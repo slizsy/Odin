@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/stat.h>
 
 // utf-8 console + ansi colors on windows, nothing to do elsewhere
@@ -12,8 +13,13 @@ void platform_init(void);
 bool platform_is_tty(int fd);
 bool platform_colors_ok(void);
 
-// if someone double-clicked odin.exe the window would vanish instantly, so wait for enter
-void platform_pause_if_launched_from_explorer(void);
+// ctrl+c in the interactive shell: the first press sets this so the running command can
+// wrap up and drop back to the prompt, a second press while it's still set quits for real
+extern volatile int odin_interrupted;
+void platform_catch_interrupts(void);
+
+uint64_t platform_now_ms(void); // monotonic, for timing retries
+const char *platform_home(void); // NULL if there isn't one
 
 // stat that doesn't follow symlinks (windows: plain stat)
 int stat_nofollow(const char *path, struct stat *st);

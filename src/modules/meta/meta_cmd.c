@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "core/extract.h"
+#include "core/platform.h"
 #include "core/scan.h"
 #include "external/exiftool.h"
 #include "output/output.h"
@@ -87,7 +88,7 @@ int run_meta(int argc, char **argv) {
     int skipped = 0, high = 0, med = 0, errors = 0;
     extract_opts opt = {fl.exiftool};
     // one file at a time, printed as we go so huge folders don't eat ram
-    for (size_t i = 0; i < files.count; i++) {
+    for (size_t i = 0; i < files.count && !odin_interrupted; i++) { // ctrl+c in the shell stops between files
         result_t *r = extract_file(files.items[i].path, opt);
         if (fl.json) {
             json_result(r);

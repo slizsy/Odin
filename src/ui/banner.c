@@ -1,5 +1,6 @@
 #include "ui/banner.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -47,7 +48,15 @@ static const piece eye[10][6] = {
     {{0, NULL}},
 };
 
+static bool shown;
+
 void banner_print(void) {
+    if (shown) return;
+    banner_print_again();
+}
+
+void banner_print_again(void) {
+    shown = true;
     putchar('\n');
     for (int i = 0; i < 10; i++) {
         printf(" %s    ", c256(shades[i], logo[i]));
