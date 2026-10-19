@@ -12,10 +12,16 @@ on:
 permissions:
   contents: read
 
+# a newer push to the same branch cancels the old run, saves build minutes
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   # full test run with address sanitizer, catches memory bugs before anything ships
   sanitizers:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq zlib1g-dev libcurl4-openssl-dev
@@ -23,6 +29,7 @@ jobs:
 
   linux-x86_64:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: docker run --rm -v "$PWD":/src -w /src alpine:3.20 sh packaging/linux/build-static.sh
@@ -36,6 +43,7 @@ jobs:
     # github's free arm runners only exist for public repos
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: docker run --rm -v "$PWD":/src -w /src alpine:3.20 sh packaging/linux/build-static.sh
@@ -47,6 +55,7 @@ jobs:
 
   macos:
     runs-on: macos-14
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: test (native, with sanitizers)
@@ -66,6 +75,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         shell: msys2 {0}
@@ -101,6 +111,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
     needs: [sanitizers, linux-x86_64, linux-arm64, macos, windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
