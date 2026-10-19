@@ -7,6 +7,7 @@ static const char *usage =
     "commands:\n"
     "  meta <path...>       rip metadata out of files and folders\n"
     "  user <name...>       hunt for a username across a pile of sites\n"
+    "  upgrade              update odin to the newest release (--check to just look)\n"
     "  help                 this screen\n"
     "  version              print the version\n"
     "\n"

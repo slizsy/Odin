@@ -38,6 +38,11 @@ irm https://raw.githubusercontent.com/slizsy/Odin/main/install.ps1 | iex
 then open a terminal and run `odin`. both installers check the download's sha256 before
 installing anything.
 
+**updating:** `odin upgrade` grabs the newest release for your os, checks its sha256, and swaps
+itself in. `odin upgrade --check` just tells you if there's a new one. if odin lives somewhere
+your user can't write (like `/usr/local/bin`), run `sudo odin upgrade`. while the repo is
+private, set `GITHUB_TOKEN` to a token that can read it first.
+
 or grab the file yourself from the [releases page](https://github.com/slizsy/Odin/releases/latest):
 
 | os | file |
@@ -173,6 +178,7 @@ src/
   modules/
     meta/             the `odin meta` command
     user/             the `odin user` command: site list, parallel checker, output
+    upgrade/          the `odin upgrade` command
     usage.h           the help text
   core/               the plumbing: results, file reading, folder walking, sha256, string helpers
   parsers/
@@ -197,16 +203,18 @@ investigations. it's also great for checking your own files before you post them
 ## releases
 
 every push builds and tests odin on linux, mac and windows (see `.github/workflows/build.yml`).
-to publish a release with downloads, tag it:
+to publish a release, bump `ODIN_VERSION` in `src/ui/banner.h`, merge, then either:
 
-```sh
-git tag v0.1.0 && git push origin v0.1.0
-```
+- actions tab -> build -> run workflow -> type the version (like `v0.1.2`), or
+- `git tag v0.1.2 && git push origin v0.1.2`
+
+the release job refuses if the tag and `ODIN_VERSION` don't match.
 
 ## dev
 
 ```sh
-make test              # unit tests (address sanitizer) + username engine vs fake sites
+make test              # unit tests (address sanitizer), username engine vs fake sites,
+                       # odin upgrade vs a fake github
 make STATIC=1          # self-contained binary, what the downloads are
 make fuzz FUZZ_TIME=60 # throws random junk at the parsers (needs clang + libfuzzer)
 make clean

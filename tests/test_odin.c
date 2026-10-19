@@ -7,6 +7,7 @@
 
 #include "analysis/findings.h"
 #include "core/extract.h"
+#include "core/json.h"
 #include "core/platform.h"
 #include "core/sha256.h"
 #include "core/util.h"
@@ -473,6 +474,34 @@ static void test_sites_file(void) {
     sites_free(&d);
 }
 
+static void test_json(void) {
+    puts("json (for odin upgrade)");
+    const char *rel = "{\"tag_name\": \"v1.2.3\", \"draft\": false, \"assets\": ["
+                      "{\"name\": \"SHA256SUMS\", \"url\": \"https://api/1\", \"size\": 1e3},"
+                      "{\"name\": \"caf\\u00e9 \\ud83d\\ude00\", \"url\": null}]}";
+    json *j = json_parse(rel, strlen(rel));
+    CHECK(j && !strcmp(json_str(j, "tag_name"), "v1.2.3"), "tag_name");
+    json *a = json_get(j, "assets");
+    CHECK(a && a->t == J_ARR && a->len == 2, "assets array");
+    if (a && a->len == 2) {
+        CHECK(!strcmp(json_str(a->items[1], "name"), "caf\xc3\xa9 \xf0\x9f\x98\x80"), "unicode escapes");
+        CHECK(json_get(a->items[0], "size")->n == 1000, "number");
+        CHECK(json_str(a->items[1], "url") == NULL, "null isn't a string");
+    }
+    json_free(j);
+
+    const char *broken[] = {"", "{", "{\"a\":}", "[1,]", "{\"a\" 1}", "\"unterminated", "{} junk", "tru"};
+    for (size_t i = 0; i < sizeof broken / sizeof *broken; i++) {
+        json *b = json_parse(broken[i], strlen(broken[i]));
+        CHECK(b == NULL, "accepted broken json: %s", broken[i]);
+        json_free(b);
+    }
+    // way too deep should be refused, not blow the stack
+    char deep[2001];
+    memset(deep, '[', 2000), deep[2000] = 0;
+    CHECK(json_parse(deep, 2000) == NULL, "2000-deep nesting accepted");
+}
+
 int main(void) {
     test_sha256();
     test_jpeg();
@@ -482,6 +511,7 @@ int main(void) {
     test_leaks();
     test_garbage();
     test_heic();
+    test_json();
     test_site_url();
     test_sites_file();
     printf("\n%d/%d checks passed\n", checks - fails, checks);
