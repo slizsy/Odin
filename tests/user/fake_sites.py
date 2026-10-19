@@ -24,6 +24,14 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_response(302); self.send_header("Location", "/status/" + name); self.send_header("Content-Length", "0"); self.end_headers(); return
         if kind == "big":      # 3MB of junk, the "not found" marker is past our 8MB cap
             return self.send(200, b"x" * (9 << 20) + (b"" if name == REAL else b"NOPE"))
+        if kind == "gap":      # just over 8MB, a pause, then the marker in its own tiny chunk.
+            # catches odin gluing a late chunk onto a page it already cut off
+            body = b"x" * ((8 << 20) + 100)
+            self.send_response(200); self.send_header("Content-Length", str(len(body) + 4)); self.end_headers()
+            self.wfile.write(body); self.wfile.flush(); time.sleep(0.3)
+            if name != REAL: self.wfile.write(b"NOPE")
+            else: self.wfile.write(b"yeah")
+            return
         if kind == "cloudflare": return self.send(200, b"<html><title>Just a moment...</title>checking your browser</html>")
         if kind == "echo":     return self.send(200, self.path.encode())
         self.send(404)

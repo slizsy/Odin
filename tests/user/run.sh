@@ -32,7 +32,7 @@ want = {
 }
 for u in ("alice", "bob"):
     want[u].update(GoneSite="not_found", EmptySite="not_found", BlockedSite="unknown", RateSite="unknown",
-                   BoomSite="unknown", SlowSite="unknown", BigSite="unknown", CloudflareSite="unknown")
+                   BoomSite="unknown", SlowSite="unknown", BigSite="unknown", GapSite="unknown", CloudflareSite="unknown")
 bad = [(u, s, d[u].get(s), w) for u in want for s, w in want[u].items() if d[u].get(s) != w]
 for u, s, got, w in bad: print(f"  FAIL {u} @ {s}: got {got}, wanted {w} ({why.get((u, s)) or 'no detail'})")
 print(f"{sum(len(w) for w in want.values()) - len(bad)}/{sum(len(w) for w in want.values())} user checks passed")

@@ -30,9 +30,16 @@ typedef struct {
 static size_t on_body(char *data, size_t size, size_t n, void *ud) {
     job_t *j = ud;
     size_t len = size * n;
-    if (j->body.len + len <= MAX_BODY) sb_putn(&j->body, data, len);
-    else j->cut = true; // past the cap we stop keeping it
-    return len;
+    size_t room = MAX_BODY - j->body.len;
+    if (len <= room) {
+        sb_putn(&j->body, data, len);
+        return len;
+    }
+    // over the cap: keep exactly the first MAX_BODY bytes, then hang up. never keep
+    // anything after a gap, or a later chunk could get glued onto the start of the page
+    sb_putn(&j->body, data, room);
+    j->cut = true;
+    return 0; // tells curl to abort, judge() knows a cut page isn't an error
 }
 
 const char *hit_state_name(hit_state s) {
@@ -69,6 +76,7 @@ static bool is_bot_wall(const sbuf *body) {
 static void judge(job_t *j, CURLcode rc) {
     hit_t *h = j->hit;
     const site_t *s = h->site;
+    if (rc == CURLE_WRITE_ERROR && j->cut) rc = CURLE_OK; // we hung up on purpose
     if (rc != CURLE_OK) {
         h->state = HIT_UNKNOWN;
         h->detail = xstrdup(rc == CURLE_OPERATION_TIMEDOUT ? "timed out" : (*j->err ? j->err : curl_easy_strerror(rc)));
