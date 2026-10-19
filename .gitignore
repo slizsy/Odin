@@ -1,2 +1,4 @@
 /odin
-/dist/
+/build/
+/fuzz-*
+/crash-*
