@@ -92,10 +92,10 @@ static unsigned char *build_tiff(tent **ifds, const int *counts, int nifd, size_
 
 #define ASCII(t, s) {t, 2, sizeof(s), (const unsigned char *)s, sizeof(s)}
 
-static unsigned char *sample_jpeg(size_t *len) {
+// tiny exif: Canon, John Doe, serial SN-0042, gps 33°51'36"S 151°12'0"E (sydney)
+static unsigned char *sample_tiff(size_t *len) {
     static const unsigned char idx1[] = {1}, idx2[] = {2};
     unsigned char lat[24], lon[24];
-    // 33°51'36"S 151°12'0"E, sydney
     uint32_t lv[6] = {33, 1, 51, 1, 3600, 100}, ov[6] = {151, 1, 12, 1, 0, 1};
     for (int i = 0; i < 6; i++) put32(lat + i * 4, lv[i]), put32(lon + i * 4, ov[i]);
 
@@ -104,9 +104,12 @@ static unsigned char *sample_jpeg(size_t *len) {
     tent gps[] = {ASCII(1, "S"), {2, 5, 3, lat, 24}, ASCII(3, "E"), {4, 5, 3, lon, 24}};
     tent *ifds[] = {ifd0, exif, gps};
     int counts[] = {4, 1, 4};
-    size_t tl;
-    unsigned char *t = build_tiff(ifds, counts, 3, &tl);
+    return build_tiff(ifds, counts, 3, len);
+}
 
+static unsigned char *sample_jpeg(size_t *len) {
+    size_t tl;
+    unsigned char *t = sample_tiff(&tl);
     size_t n = 4 + 2 + 6 + tl + 2;
     unsigned char *b = malloc(n);
     memcpy(b, "\xFF\xD8\xFF\xE1", 4);
@@ -148,6 +151,119 @@ static void test_pdf(void) {
     CHECK(finding(r, "edit history", "Alice (draft) → Bob"), "no edit history finding");
     if (fails) dump_findings(r);
     result_free(r);
+}
+
+// --- builds a minimal heic: ftyp, mdat, meta{hdlr, iinf, iloc, idat} ---
+
+static void be16(sbuf *b, uint32_t v) {
+    char c[2] = {(char)(v >> 8), (char)v};
+    sb_putn(b, c, 2);
+}
+static void be32(sbuf *b, uint32_t v) {
+    char c[4] = {(char)(v >> 24), (char)(v >> 16), (char)(v >> 8), (char)v};
+    sb_putn(b, c, 4);
+}
+static size_t box_open(sbuf *b, const char *type) {
+    size_t at = b->len;
+    be32(b, 0);
+    sb_putn(b, type, 4);
+    return at;
+}
+static void box_close(sbuf *b, size_t at) {
+    uint32_t n = (uint32_t)(b->len - at);
+    unsigned char *p = (unsigned char *)b->s + at;
+    p[0] = (unsigned char)(n >> 24), p[1] = (unsigned char)(n >> 16), p[2] = (unsigned char)(n >> 8), p[3] = (unsigned char)n;
+}
+
+// `tiles` dummy image items come before the exif item, like a tiled 48mp iphone shot.
+// in_idat puts the exif inside the meta box (iloc construction method 1) instead of mdat
+static unsigned char *sample_heic(int tiles, bool in_idat, size_t *len) {
+    size_t tl;
+    unsigned char *tiff = sample_tiff(&tl);
+    sbuf exif;
+    sb_init(&exif);
+    be32(&exif, 6); // offset to the tiff header, apple style
+    sb_putn(&exif, "Exif\0\0", 6);
+    sb_putn(&exif, (char *)tiff, tl);
+    free(tiff);
+
+    sbuf b;
+    sb_init(&b);
+    size_t ftyp = box_open(&b, "ftyp");
+    sb_putn(&b, "heic", 4), be32(&b, 0), sb_putn(&b, "mif1heic", 8);
+    box_close(&b, ftyp);
+
+    size_t mdat = box_open(&b, "mdat");
+    uint32_t tile_at = (uint32_t)b.len;
+    sb_putc(&b, 'T');
+    uint32_t exif_at = (uint32_t)b.len;
+    if (!in_idat) sb_putn(&b, exif.s, exif.len);
+    box_close(&b, mdat);
+
+    size_t meta = box_open(&b, "meta");
+    be32(&b, 0);
+    size_t hdlr = box_open(&b, "hdlr");
+    be32(&b, 0), be32(&b, 0), sb_putn(&b, "pict", 4), be32(&b, 0), be32(&b, 0), be32(&b, 0), sb_putc(&b, 0);
+    box_close(&b, hdlr);
+
+    size_t iinf = box_open(&b, "iinf");
+    be32(&b, 0), be16(&b, (uint32_t)tiles + 1);
+    for (int i = 0; i <= tiles; i++) {
+        size_t infe = box_open(&b, "infe");
+        be32(&b, 2u << 24); // version 2
+        be16(&b, (uint32_t)i + 1), be16(&b, 0);
+        sb_putn(&b, i < tiles ? "hvc1" : "Exif", 4);
+        sb_putc(&b, 0);
+        box_close(&b, infe);
+    }
+    box_close(&b, iinf);
+
+    size_t iloc = box_open(&b, "iloc");
+    be32(&b, 1u << 24); // version 1
+    sb_putc(&b, 0x44), sb_putc(&b, 0x00); // 4 byte offsets + lengths, no base offset
+    be16(&b, (uint32_t)tiles + 1);
+    for (int i = 0; i <= tiles; i++) {
+        bool is_exif = i == tiles;
+        be16(&b, (uint32_t)i + 1);
+        be16(&b, is_exif && in_idat ? 1 : 0); // construction method
+        be16(&b, 0), be16(&b, 1);              // data ref, 1 extent
+        be32(&b, is_exif ? (in_idat ? 0 : exif_at) : tile_at);
+        be32(&b, is_exif ? (uint32_t)exif.len : 1);
+    }
+    box_close(&b, iloc);
+    if (in_idat) {
+        size_t idat = box_open(&b, "idat");
+        sb_putn(&b, exif.s, exif.len);
+        box_close(&b, idat);
+    }
+    box_close(&b, meta);
+    sb_free(&exif);
+    *len = b.len;
+    return (unsigned char *)sb_take(&b);
+}
+
+static void test_heic(void) {
+    puts("heic (iphone photos)");
+    for (int v = 0; v < 2; v++) {
+        bool in_idat = v == 1;
+        size_t n;
+        unsigned char *b = sample_heic(100, in_idat, &n);
+        result_t *r = run(b, n);
+        CHECK(!strcmp(r->type, "HEIC image"), "type = %s", r->type);
+        CHECK(!strcmp(field(r, "Make"), "Canon"), "%s: Make = '%s'", in_idat ? "idat" : "mdat", field(r, "Make"));
+        CHECK(r->ngps == 1 && fabs(r->gps[0].lat + 33.86) < 1e-6, "%s: gps missing", in_idat ? "idat" : "mdat");
+        CHECK(finding(r, "device id", "SN-0042"), "%s: serial missing", in_idat ? "idat" : "mdat");
+        result_free(r);
+
+        // every possible truncation, in an exact-size buffer so asan sees overreads
+        for (size_t cut = 0; cut < n; cut++) {
+            unsigned char *c = malloc(cut ? cut : 1);
+            memcpy(c, b, cut);
+            result_free(run(c, cut));
+            free(c);
+        }
+        free(b);
+    }
 }
 
 // --- builds a zip with stored (uncompressed) entries ---
@@ -365,6 +481,7 @@ int main(void) {
     test_xmp();
     test_leaks();
     test_garbage();
+    test_heic();
     test_site_url();
     test_sites_file();
     printf("\n%d/%d checks passed\n", checks - fails, checks);
