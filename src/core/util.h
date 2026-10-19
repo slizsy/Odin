@@ -5,6 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// windows' default printf is pre-c99, the makefile switches mingw to its c99 one (%zu etc)
+// and this makes the format warnings check against that one too
+#ifdef _WIN32
+#define ODIN_PRINTF(fmt, args) __attribute__((format(gnu_printf, fmt, args)))
+#else
+#define ODIN_PRINTF(fmt, args) __attribute__((format(printf, fmt, args)))
+#endif
+
 // growable string, used everywhere we build text
 typedef struct {
     char *s;
@@ -15,7 +23,7 @@ void sb_init(sbuf *b);
 void sb_putc(sbuf *b, char c);
 void sb_putn(sbuf *b, const char *s, size_t n);
 void sb_puts(sbuf *b, const char *s);
-void sb_printf(sbuf *b, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void sb_printf(sbuf *b, const char *fmt, ...) ODIN_PRINTF(2, 3);
 void sb_rune(sbuf *b, uint32_t cp);
 char *sb_take(sbuf *b); // hands over the string, caller frees
 void sb_free(sbuf *b);
@@ -24,7 +32,7 @@ void *xmalloc(size_t n);
 void *xrealloc(void *p, size_t n);
 char *xstrdup(const char *s);
 char *xstrndup(const char *s, size_t n);
-char *xprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+char *xprintf(const char *fmt, ...) ODIN_PRINTF(1, 2);
 
 // grow a dynamic array by one slot, dies on oom
 #define VEC_PUSH(arr, len, cap)                                         \

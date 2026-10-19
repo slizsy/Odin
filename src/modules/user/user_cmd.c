@@ -5,8 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
+#include "core/platform.h"
 #include "core/util.h"
 #include "modules/usage.h"
 #include "modules/user/check.h"
@@ -111,7 +111,7 @@ static void print_pretty(hit_list *h, const char *user, size_t off, const site_l
 // a name nobody will ever register
 static void gibberish(char *out, size_t n) {
     static const char cs[] = "abcdefghijklmnopqrstuvwxyz0123456789";
-    srand((unsigned)time(NULL) ^ (unsigned)getpid());
+    srand((unsigned)time(NULL) ^ platform_pid());
     size_t k = (size_t)snprintf(out, n, "odinx");
     for (; k + 1 < n && k < 17; k++) out[k] = cs[rand() % (sizeof cs - 1)];
     out[k] = 0;
@@ -267,7 +267,7 @@ int run_user(int argc, char **argv) {
     }
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
-    show_progress = !fl.json && isatty(STDERR_FILENO);
+    show_progress = !fl.json && platform_is_tty(2);
     if (!fl.json && !fl.quiet) banner_print();
 
     int rc = 0;

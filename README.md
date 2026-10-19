@@ -19,7 +19,42 @@ osint toolkit written in c. one small native binary that only needs zlib and lib
 (basically every system already has them). right now it does metadata extraction and
 username hunting, more modules (emails, domains, phones, ips) are on the way.
 
-## build
+## install
+
+no compiling, no extra stuff to install. pick your os:
+
+**mac / linux**, paste into a terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/slizsy/Odin/main/install.sh | sh
+```
+
+**windows**, paste into powershell:
+
+```powershell
+irm https://raw.githubusercontent.com/slizsy/Odin/main/install.ps1 | iex
+```
+
+then open a terminal and run `odin`. both installers check the download's sha256 before
+installing anything.
+
+or grab the file yourself from the [releases page](https://github.com/slizsy/Odin/releases/latest):
+
+| os | file |
+| --- | --- |
+| windows 10/11 (64-bit) | `odin-windows-x86_64.exe` |
+| mac (apple silicon + intel) | `odin-macos-universal` |
+| linux x86_64 (any distro) | `odin-linux-x86_64` |
+| linux arm64 (pi, arm servers) | `odin-linux-arm64` |
+
+on mac/linux run `chmod +x` on it first. if mac complains it "can't verify the developer"
+(that happens when you download through a browser), run `xattr -d com.apple.quarantine odin-macos-universal`
+once. the install script avoids this entirely.
+
+windows smartscreen might warn about an unknown app the first time since it isn't code
+signed yet, hit "more info" then "run anyway".
+
+## build it yourself
 
 ```sh
 git clone https://github.com/slizsy/Odin && cd Odin
@@ -33,7 +68,8 @@ needs a c compiler (gcc or clang) plus zlib and libcurl headers:
 - fedora: `sudo dnf install gcc make zlib-devel libcurl-devel`
 - arch: `sudo pacman -S base-devel zlib curl`
 - macos: `xcode-select --install` (zlib and curl come with it)
-- windows: use wsl
+- windows: [msys2](https://www.msys2.org) ucrt64 shell, then
+  `pacman -S make mingw-w64-ucrt-x86_64-{gcc,pkgconf,curl,zlib}` and `make STATIC=1`
 
 `sudo make install` drops it in `/usr/local/bin` so you can run `odin` from anywhere.
 
@@ -158,10 +194,20 @@ adding a new file format = new parser in `parsers/`, then one line in `parsers/p
 only point this at stuff you're allowed to look at: your own files, ctfs, authorized
 investigations. it's also great for checking your own files before you post them.
 
+## releases
+
+every push builds and tests odin on linux, mac and windows (see `.github/workflows/build.yml`).
+to publish a release with downloads, tag it:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 ## dev
 
 ```sh
 make test              # unit tests (address sanitizer) + username engine vs fake sites
+make STATIC=1          # self-contained binary, what the downloads are
 make fuzz FUZZ_TIME=60 # throws random junk at the parsers (needs clang + libfuzzer)
 make clean
 ```

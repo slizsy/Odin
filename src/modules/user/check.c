@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "core/util.h"
 
@@ -100,6 +101,41 @@ static void judge(job_t *j, CURLcode rc) {
     else h->state = has ? HIT_FOUND : HIT_MISSING;
 }
 
+// https certs. windows: use the system cert store. linux: a portable build might have been
+// compiled on a distro that keeps its cert bundle somewhere else, so go find this one's
+static void apply_tls(CURL *e) {
+#ifdef _WIN32
+    curl_easy_setopt(e, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
+#elif !defined(__APPLE__)
+    static int probed;
+    static const char *found;
+    if (!probed) {
+        probed = 1;
+        const char *env = getenv("SSL_CERT_FILE");
+        if (!env) env = getenv("CURL_CA_BUNDLE");
+        curl_version_info_data *v = curl_version_info(CURLVERSION_NOW);
+        struct stat st;
+        if (env && stat(env, &st) == 0) {
+            found = env;
+        } else if (!(v->cainfo && stat(v->cainfo, &st) == 0) && !(v->capath && stat(v->capath, &st) == 0)) {
+            static const char *spots[] = {
+                "/etc/ssl/certs/ca-certificates.crt",                // debian, ubuntu, kali, arch, alpine
+                "/etc/pki/tls/certs/ca-bundle.crt",                  // fedora, rhel
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // newer rhel
+                "/etc/ssl/ca-bundle.pem",                            // opensuse
+                "/etc/ssl/cert.pem",                                 // void, older alpine
+                NULL,
+            };
+            for (int i = 0; spots[i] && !found; i++)
+                if (stat(spots[i], &st) == 0) found = spots[i];
+        }
+    }
+    if (found) curl_easy_setopt(e, CURLOPT_CAINFO, found);
+#else
+    (void)e; // macos libcurl already knows where the system certs are
+#endif
+}
+
 // runs every prepared hit (site + username already filled in) in parallel
 static void run_hits(hit_t *hits, size_t total, long timeout, progress_fn cb) {
     job_t *jobs = calloc(total ? total : 1, sizeof(job_t));
@@ -143,6 +179,7 @@ static void run_hits(hit_t *hits, size_t total, long timeout, progress_fn cb) {
         curl_easy_setopt(e, CURLOPT_HTTPHEADER, hdrs);
         curl_easy_setopt(e, CURLOPT_ACCEPT_ENCODING, ""); // gzip/br/whatever curl supports
         curl_easy_setopt(e, CURLOPT_NOSIGNAL, 1L);
+        apply_tls(e);
         curl_multi_add_handle(m, e);
         free(probe);
     }

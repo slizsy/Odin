@@ -1,14 +1,85 @@
 #include "external/exiftool.h"
 
 #include <ctype.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include "core/util.h"
+
+#ifdef _WIN32
+#include <windows.h>
+
+bool have_exiftool(void) {
+    char buf[MAX_PATH];
+    return SearchPathA(NULL, "exiftool.exe", NULL, sizeof buf, buf, NULL) > 0;
+}
+
+// windows command lines are one string, so the filename has to be quoted the way
+// CommandLineToArgvW expects: backslashes only get doubled right before a quote
+static void quote_arg(sbuf *o, const char *a) {
+    sb_putc(o, '"');
+    for (const char *p = a;; p++) {
+        size_t slashes = 0;
+        while (*p == '\\') slashes++, p++;
+        if (!*p) {
+            for (size_t i = 0; i < slashes * 2; i++) sb_putc(o, '\\');
+            break;
+        }
+        if (*p == '"') {
+            for (size_t i = 0; i < slashes * 2 + 1; i++) sb_putc(o, '\\');
+        } else {
+            for (size_t i = 0; i < slashes; i++) sb_putc(o, '\\');
+        }
+        sb_putc(o, *p);
+    }
+    sb_putc(o, '"');
+}
+
+static char *capture(const char *file, size_t *len) {
+    SECURITY_ATTRIBUTES sa = {sizeof sa, NULL, TRUE};
+    HANDLE rd, wr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return NULL;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0); // only the child gets the write end
+
+    sbuf cmd;
+    sb_init(&cmd);
+    sb_puts(&cmd, "exiftool.exe -j -G1 -a -s -c \"%+.6f\" -api largefilesupport=1 -- ");
+    quote_arg(&cmd, file);
+
+    HANDLE nul = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, NULL);
+    STARTUPINFOA si = {0};
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = wr;
+    si.hStdError = nul; // exiftool's warnings are noise here
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi;
+    BOOL ok = CreateProcessA(NULL, cmd.s, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    sb_free(&cmd);
+    CloseHandle(wr);
+    if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    if (!ok) {
+        CloseHandle(rd);
+        return NULL;
+    }
+
+    sbuf out;
+    sb_init(&out);
+    char buf[8192];
+    DWORD n;
+    while (ReadFile(rd, buf, sizeof buf, &n, NULL) && n > 0) sb_putn(&out, buf, n);
+    CloseHandle(rd);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess), CloseHandle(pi.hThread);
+    *len = out.len;
+    return sb_take(&out);
+}
+
+#else
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 bool have_exiftool(void) {
     const char *path = getenv("PATH");
@@ -50,6 +121,7 @@ static char *capture(const char *file, size_t *len) {
     *len = out.len;
     return sb_take(&out);
 }
+#endif
 
 // tiny json reader, just enough for exiftool's flat [{"Group:Tag": value, ...}]
 typedef struct {

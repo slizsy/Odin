@@ -3,12 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <zlib.h>
 
 #include "analysis/findings.h"
 #include "core/extract.h"
+#include "core/platform.h"
 #include "core/sha256.h"
 #include "core/util.h"
 #include "modules/user/sites.h"
@@ -313,14 +312,23 @@ static void test_site_url(void) {
     free(u);
 }
 
+static void write_text(const char *path, const char *text) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fputs(text, f);
+    fclose(f);
+}
+
 static void test_sites_file(void) {
     puts("sites file parsing");
-    char path[] = "/tmp/odin_sites_XXXXXX";
-    int fd = mkstemp(path);
+    // temp file in whatever temp dir this os uses
+    const char *dir = getenv("TMPDIR");
+    if (!dir) dir = getenv("TEMP");
+    if (!dir) dir = ".";
+    char *path = xprintf("%s/odin_sites_%u.txt", dir, platform_pid());
     const char *good = "# comment\n\nA | https://a.com/{} | status\n"
                        "B | https://b.com/api/{} | absent:not found | https://b.com/{} | bob\n";
-    write(fd, good, strlen(good));
-    close(fd);
+    write_text(path, good);
     site_list l = {0};
     char err[256] = "";
     CHECK(sites_load_file(&l, path, err, sizeof err), "good file failed: %s", err);
@@ -335,14 +343,13 @@ static void test_sites_file(void) {
     const char *bad[] = {"A | https://a.com/nope | status\n", "A | ftp://a.com/{} | status\n",
                          "A | https://a.com/{} | sometimes\n", "A | https://a.com/{}\n", "# only comments\n"};
     for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
-        fd = open(path, O_WRONLY | O_TRUNC);
-        write(fd, bad[i], strlen(bad[i]));
-        close(fd);
+        write_text(path, bad[i]);
         site_list b = {0};
         CHECK(!sites_load_file(&b, path, err, sizeof err), "bad file %zu was accepted", i);
         sites_free(&b);
     }
-    unlink(path);
+    remove(path);
+    free(path);
 
     site_list d = {0};
     sites_load_default(&d);
