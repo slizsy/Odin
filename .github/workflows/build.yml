@@ -8,6 +8,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "publish a release, like v0.1.2 (must match ODIN_VERSION). empty = just build"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -108,13 +113,24 @@ jobs:
           path: odin-windows-x86_64.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
+    # a pushed v* tag, or the run-workflow button with a version filled in
+    if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')) && !cancelled() && !failure()
     needs: [sanitizers, linux-x86_64, linux-arm64, macos, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      # the tag has to match the version baked into the binary, otherwise
+      # `odin upgrade` would think it's always out of date and loop forever
+      - name: version matches the code
+        env:
+          WANT: ${{ inputs.version || github.ref_name }}
+        run: |
+          have="v$(sed -n 's/^#define ODIN_VERSION "\(.*\)"/\1/p' src/ui/banner.h)"
+          echo "release $WANT, code says $have"
+          [ "$WANT" = "$have" ] || { echo "::error::release $WANT but src/ui/banner.h says $have"; exit 1; }
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -123,5 +139,7 @@ jobs:
         run: cd dist && sha256sum odin-* > SHA256SUMS && cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true

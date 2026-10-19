@@ -55,6 +55,7 @@ test: $(EXE) $(SRC)
 		tests/test_odin.c $(filter-out src/main.c,$(SRC)) $(LDLIBS)
 	./build/test_odin
 	./tests/user/run.sh $(CURDIR)/$(EXE)
+	./tests/upgrade/run.sh $(CURDIR)/$(EXE)
 
 # throws random junk at the parsers (needs clang + libfuzzer). FUZZ_TIME is in seconds
 FUZZ_TIME ?= 60

@@ -2,8 +2,8 @@
 1 RT_MANIFEST "odin.manifest"
 
 1 VERSIONINFO
-FILEVERSION 0,1,1,0
-PRODUCTVERSION 0,1,1,0
+FILEVERSION 0,1,2,0
+PRODUCTVERSION 0,1,2,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -11,9 +11,9 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "slizsy"
       VALUE "FileDescription", "Odin osint toolkit"
-      VALUE "FileVersion", "0.1.1"
+      VALUE "FileVersion", "0.1.2"
       VALUE "ProductName", "Odin"
-      VALUE "ProductVersion", "0.1.1"
+      VALUE "ProductVersion", "0.1.2"
       VALUE "OriginalFilename", "odin.exe"
     END
   END
