@@ -7,15 +7,21 @@ PORT=$((20000 + $$ % 20000))
 TMP=$(mktemp -d)
 trap 'kill $SERVER 2>/dev/null; rm -rf "$TMP"' EXIT
 
-python3 fake_sites.py "$PORT" & SERVER=$!
+PY=$(command -v python3 || command -v python) || { echo "need python3 for this test"; exit 1; }
+"$PY" fake_sites.py "$PORT" & SERVER=$!
 sed "s/PORT/$PORT/" sites.txt > "$TMP/sites.txt"
-sleep 1
 
 # don't let a proxy in the environment eat localhost requests
 export NO_PROXY='*' no_proxy='*'
+
+# wait for the fake server to come up (slow on some ci boxes)
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    "$PY" -c "import urllib.request as u; u.urlopen('http://127.0.0.1:$PORT/status/alice', timeout=1)" 2>/dev/null && break
+    sleep 0.5
+done
 "$ODIN" user -j -t 2 --sites "$TMP/sites.txt" alice bob > "$TMP/out.json" || { echo "odin failed"; exit 1; }
 
-python3 - "$TMP/out.json" <<'PY'
+"$PY" - "$TMP/out.json" <<'PY'
 import json, sys
 d = {u["username"]: {s["site"]: s["status"] for s in u["sites"]} for u in json.load(open(sys.argv[1]))}
 want = {

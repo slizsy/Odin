@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "core/platform.h"
 #include "core/util.h"
 
 static void push(scan_list *l, const char *path, bool explicit_file) {
@@ -37,10 +38,11 @@ static void walk(scan_list *l, const char *dir, bool recursive) {
     if (n) qsort(names, n, sizeof *names, by_name);
 
     for (size_t i = 0; i < n; i++) {
-        char *full = ends_with(dir, "/") ? xprintf("%s%s", dir, names[i]) : xprintf("%s/%s", dir, names[i]);
+        size_t dl = strlen(dir);
+        char *full = dl && is_path_sep(dir[dl - 1]) ? xprintf("%s%s", dir, names[i]) : xprintf("%s/%s", dir, names[i]);
         struct stat st;
-        // lstat so symlinks can't send us in circles
-        if (lstat(full, &st) == 0) {
+        // don't follow symlinks so they can't send us in circles
+        if (stat_nofollow(full, &st) == 0) {
             if (S_ISREG(st.st_mode)) push(l, full, false);
             else if (S_ISDIR(st.st_mode) && recursive) walk(l, full, true);
         }
