@@ -1,37 +1,41 @@
 # Odin
 
 ```
- ▒█████  ▓█████▄  ██▓ ███▄    █         ᛟ  ᛞ  ᛁ  ᚾ
-▒██▒  ██▒▒██▀ ██▌▓██▒ ██ ▀█   █      ▄▄▀▀▀▀▀▀▀▀▀▀▀▀▀▄▄
-▒██░  ██▒░██   █▌▒██▒▓██  ▀█ ██▒   ▄▀    ▄▄█████▄▄    ▀▄
-▒██   ██░░▓█▄   ▌░██░▓██▒  ▐▌██▒   █   ▄██▀▀   ▀▀██▄   █
-░ ████▓▒░░▒████▓ ░██░▒██░   ▓██░   █  ██   ▄███▄   ██  █
-░ ▒░▒░▒░  ▒▒▓  ▒ ░▓  ░ ▒░   ▒ ▒    █  ██   ▀███▀   ██  █
-  ░ ▒ ▒░  ░ ▒  ▒  ▒ ░░ ░░   ░ ▒░   █   ▀██▄▄   ▄▄██▀   █
-░ ░ ░ ▒   ░ ░  ░  ▒ ░   ░   ░ ░    ▀▄    ▀▀█████▀▀    ▄▀
-    ░ ░     ░     ░           ░      ▀▀▄▄▄▄▄▄▄▄▄▄▄▄▄▀▀
-          ░                           huginn · muninn
+ ▒█████  ▓█████▄  ██▓ ███▄    █       ▄▄▀▀▀▀▀▀▀▀▀▀▀▀▀▄▄
+▒██▒  ██▒▒██▀ ██▌▓██▒ ██ ▀█   █     ▄▀    ▄▄█████▄▄    ▀▄
+▒██░  ██▒░██   █▌▒██▒▓██  ▀█ ██▒    █   ▄██▀▀   ▀▀██▄   █
+▒██   ██░░▓█▄   ▌░██░▓██▒  ▐▌██▒    █  ██   ▄███▄   ██  █
+░ ████▓▒░░▒████▓ ░██░▒██░   ▓██░    █  ██   ▀███▀   ██  █
+░ ▒░▒░▒░  ▒▒▓  ▒ ░▓  ░ ▒░   ▒ ▒     █   ▀██▄▄   ▄▄██▀   █
+  ░ ▒ ▒░  ░ ▒  ▒  ▒ ░░ ░░   ░ ▒░    ▀▄    ▀▀█████▀▀    ▄▀
+░ ░ ░ ▒   ░ ░  ░  ▒ ░   ░   ░ ░       ▀▀▄▄▄▄▄▄▄▄▄▄▄▄▄▀▀
+    ░ ░     ░     ░           ░          ᛟ  ᛞ  ᛁ  ᚾ
+          ░
+
+                      made by slizsy
 ```
 
-the all-seeing osint toolkit. made by slizsy.
-
-one fast binary, no runtime, no dependencies. right now it does metadata extraction,
+osint toolkit written in c. one small native binary, the only thing it needs is zlib
+(which basically every system already has). right now it does metadata extraction,
 more modules (usernames, emails, domains, phones, ips) are on the way.
 
-## install
-
-needs go 1.22+
-
-```sh
-go install github.com/slizsy/Odin/cmd/odin@latest
-```
-
-or build it yourself:
+## build
 
 ```sh
 git clone https://github.com/slizsy/Odin && cd Odin
-go build -o odin ./cmd/odin
+make
+./odin
 ```
+
+needs a c compiler (gcc or clang) and zlib headers:
+
+- debian / ubuntu / kali: `sudo apt install build-essential zlib1g-dev`
+- fedora: `sudo dnf install gcc make zlib-devel`
+- arch: `sudo pacman -S base-devel zlib`
+- macos: `xcode-select --install` (zlib comes with it)
+- windows: use wsl
+
+`sudo make install` drops it in `/usr/local/bin` so you can run `odin` from anywhere.
 
 ## usage
 
@@ -51,7 +55,7 @@ odin meta -x weird.heic              # full dump via exiftool (if installed)
 | `-q`, `--quiet` | no banner |
 | `--no-color` | plain text (also respects `NO_COLOR`) |
 
-short flags stack, so `-rfq` works.
+short flags stack, so `-rfq` works. use `--` before a filename that starts with a dash.
 
 ## what it reads
 
@@ -72,6 +76,26 @@ odin doesn't just dump fields, it flags the stuff that matters:
 - **medium**: names / authors, device serial numbers, emails, network share hostnames, city/country tags, fields that changed between pdf saves
 - **info**: device make/model, software versions, edit time
 
+## where stuff lives
+
+```
+src/
+  main.c              command line handling
+  core/               the plumbing: results, file reading, folder walking, sha256, string helpers
+  parsers/
+    parsers.c         sniffs what a file actually is and sends it to the right parser
+    images/           jpeg, png, webp, exif, iptc
+    docs/             pdf, office/odf, xmp, a tiny xml scanner
+    archive/          zip reader (docx and friends are zips)
+  analysis/           turns raw fields into findings
+  output/             pretty terminal output + json
+  external/           exiftool hookup
+  ui/                 colors + the banner
+tests/                unit tests + fuzz harness
+```
+
+adding a new file format = new parser in `parsers/`, then one line in `parsers/parsers.c`.
+
 ## use it right
 
 only point this at stuff you're allowed to look at: your own files, ctfs, authorized
@@ -80,6 +104,7 @@ investigations. it's also great for checking your own files before you post them
 ## dev
 
 ```sh
-go test ./...
-go test ./internal/meta -fuzz FuzzParse -fuzztime 30s   # throw junk at the parsers
+make test              # unit tests, built with address sanitizer
+make fuzz FUZZ_TIME=60 # throws random junk at the parsers (needs clang + libfuzzer)
+make clean
 ```
