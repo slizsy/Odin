@@ -9,13 +9,19 @@
 #include "core/util.h"
 
 #define MAX_BODY (8u << 20)
-#define PARALLEL 24
+#define PARALLEL 24 // requests in flight at once
+#define PER_HOST 4  // and at most this many to any one site, be polite
 
 // looks like a normal browser, a lot of sites slam the door on obvious bots
 #define UA "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
+typedef enum { JOB_WAITING, JOB_RUNNING, JOB_DONE } job_phase;
+
 typedef struct {
     hit_t *hit;
+    job_phase phase;
+    char *probe;
+    char host[256];
     sbuf body;
     bool cut; // page was bigger than MAX_BODY, we only have the start of it
     char err[CURL_ERROR_SIZE];
@@ -136,15 +142,50 @@ static void apply_tls(CURL *e) {
 #endif
 }
 
-// runs every prepared hit (site + username already filled in) in parallel
+// "https://bob.site.com:8080/x" -> "bob.site.com:8080", used to cap requests per site
+static void host_of(const char *url, char *out, size_t n) {
+    const char *h = strstr(url, "://");
+    h = h ? h + 3 : url;
+    size_t len = strcspn(h, "/?#");
+    if (len >= n) len = n - 1;
+    memcpy(out, h, len);
+    out[len] = 0;
+}
+
+static int running_on(const job_t *jobs, size_t total, const char *host) {
+    int c = 0;
+    for (size_t k = 0; k < total; k++) c += jobs[k].phase == JOB_RUNNING && !strcmp(jobs[k].host, host);
+    return c;
+}
+
+static void start_job(CURLM *m, job_t *j, long timeout, struct curl_slist *hdrs) {
+    CURL *e = curl_easy_init();
+    curl_easy_setopt(e, CURLOPT_URL, j->probe);
+    curl_easy_setopt(e, CURLOPT_WRITEFUNCTION, on_body);
+    curl_easy_setopt(e, CURLOPT_WRITEDATA, j);
+    curl_easy_setopt(e, CURLOPT_PRIVATE, j);
+    curl_easy_setopt(e, CURLOPT_ERRORBUFFER, j->err);
+    curl_easy_setopt(e, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(e, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(e, CURLOPT_TIMEOUT, timeout);
+    curl_easy_setopt(e, CURLOPT_CONNECTTIMEOUT, timeout < 10 ? timeout : 10L);
+    curl_easy_setopt(e, CURLOPT_USERAGENT, UA);
+    curl_easy_setopt(e, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(e, CURLOPT_ACCEPT_ENCODING, ""); // gzip/br/whatever curl supports
+    curl_easy_setopt(e, CURLOPT_NOSIGNAL, 1L);
+    apply_tls(e);
+    curl_multi_add_handle(m, e);
+    j->phase = JOB_RUNNING;
+}
+
+// runs every prepared hit (site + username already filled in) in parallel.
+// we do the queueing ourselves instead of letting curl do it: curl starts a request's
+// timeout the moment it's queued, so anything stuck behind a slow site would "time out"
+// before it was even sent
 static void run_hits(hit_t *hits, size_t total, long timeout, progress_fn cb) {
     job_t *jobs = calloc(total ? total : 1, sizeof(job_t));
     if (!jobs) exit(1);
-
     CURLM *m = curl_multi_init();
-    // libcurl queues anything past this and starts it when a slot frees up
-    curl_multi_setopt(m, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long)PARALLEL);
-    curl_multi_setopt(m, CURLMOPT_MAX_HOST_CONNECTIONS, 4L);
     struct curl_slist *hdrs = curl_slist_append(NULL, "Accept-Language: en-US,en;q=0.9");
     hdrs = curl_slist_append(hdrs, "Accept: text/html,application/json;q=0.9,*/*;q=0.8");
 
@@ -155,38 +196,32 @@ static void run_hits(hit_t *hits, size_t total, long timeout, progress_fn cb) {
         h->state = HIT_UNKNOWN;
         j->hit = h;
         sb_init(&j->body);
-
-        char *probe = site_url(h->site->probe, h->username);
+        j->probe = site_url(h->site->probe, h->username);
         h->url = site_url(h->site->profile, h->username);
-        if (!probe || !h->url) {
+        if (!j->probe || !h->url) {
             h->detail = xstrdup("name can't exist here (bad characters)");
             h->state = HIT_MISSING;
-            free(probe);
+            j->phase = JOB_DONE;
             done++;
             continue;
         }
-        CURL *e = curl_easy_init();
-        curl_easy_setopt(e, CURLOPT_URL, probe);
-        curl_easy_setopt(e, CURLOPT_WRITEFUNCTION, on_body);
-        curl_easy_setopt(e, CURLOPT_WRITEDATA, j);
-        curl_easy_setopt(e, CURLOPT_PRIVATE, j);
-        curl_easy_setopt(e, CURLOPT_ERRORBUFFER, j->err);
-        curl_easy_setopt(e, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(e, CURLOPT_MAXREDIRS, 5L);
-        curl_easy_setopt(e, CURLOPT_TIMEOUT, timeout);
-        curl_easy_setopt(e, CURLOPT_CONNECTTIMEOUT, timeout < 10 ? timeout : 10L);
-        curl_easy_setopt(e, CURLOPT_USERAGENT, UA);
-        curl_easy_setopt(e, CURLOPT_HTTPHEADER, hdrs);
-        curl_easy_setopt(e, CURLOPT_ACCEPT_ENCODING, ""); // gzip/br/whatever curl supports
-        curl_easy_setopt(e, CURLOPT_NOSIGNAL, 1L);
-        apply_tls(e);
-        curl_multi_add_handle(m, e);
-        free(probe);
+        host_of(j->probe, j->host, sizeof j->host);
     }
     if (cb) cb(done, total);
 
-    int running = 1;
-    while (running) {
+    size_t inflight = 0;
+    bool slot_freed = true;
+    for (;;) {
+        // fill free slots, skipping sites that already have PER_HOST going
+        for (size_t k = 0; slot_freed && k < total && inflight < PARALLEL; k++) {
+            if (jobs[k].phase != JOB_WAITING || running_on(jobs, total, jobs[k].host) >= PER_HOST) continue;
+            start_job(m, &jobs[k], timeout, hdrs);
+            inflight++;
+        }
+        slot_freed = false;
+        if (!inflight) break;
+
+        int running;
         curl_multi_perform(m, &running);
         CURLMsg *msg;
         int left;
@@ -201,12 +236,15 @@ static void run_hits(hit_t *hits, size_t total, long timeout, progress_fn cb) {
             sb_free(&j->body);
             curl_multi_remove_handle(m, e);
             curl_easy_cleanup(e);
+            j->phase = JOB_DONE;
+            inflight--;
+            slot_freed = true;
             if (cb) cb(++done, total);
         }
-        if (running) curl_multi_poll(m, NULL, 0, 500, NULL);
+        if (inflight && !slot_freed) curl_multi_poll(m, NULL, 0, 500, NULL);
     }
 
-    for (size_t k = 0; k < total; k++) sb_free(&jobs[k].body);
+    for (size_t k = 0; k < total; k++) sb_free(&jobs[k].body), free(jobs[k].probe);
     free(jobs);
     curl_slist_free_all(hdrs);
     curl_multi_cleanup(m);

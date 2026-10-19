@@ -23,7 +23,9 @@ done
 
 "$PY" - "$TMP/out.json" <<'PY'
 import json, sys
-d = {u["username"]: {s["site"]: s["status"] for s in u["sites"]} for u in json.load(open(sys.argv[1]))}
+raw = json.load(open(sys.argv[1]))
+d = {u["username"]: {s["site"]: s["status"] for s in u["sites"]} for u in raw}
+why = {(u["username"], s["site"]): s["detail"] for u in raw for s in u["sites"]}
 want = {
     "alice": dict(StatusSite="found", AbsentSite="found", PresentSite="found", RedirectSite="found", SubdomainSite="found"),
     "bob":   dict(StatusSite="not_found", AbsentSite="not_found", PresentSite="not_found", RedirectSite="not_found", SubdomainSite="not_found"),
@@ -32,7 +34,7 @@ for u in ("alice", "bob"):
     want[u].update(GoneSite="not_found", EmptySite="not_found", BlockedSite="unknown", RateSite="unknown",
                    BoomSite="unknown", SlowSite="unknown", BigSite="unknown", CloudflareSite="unknown")
 bad = [(u, s, d[u].get(s), w) for u in want for s, w in want[u].items() if d[u].get(s) != w]
-for u, s, got, w in bad: print(f"  FAIL {u} @ {s}: got {got}, wanted {w}")
+for u, s, got, w in bad: print(f"  FAIL {u} @ {s}: got {got}, wanted {w} ({why.get((u, s)) or 'no detail'})")
 print(f"{sum(len(w) for w in want.values()) - len(bad)}/{sum(len(w) for w in want.values())} user checks passed")
 sys.exit(1 if bad else 0)
 PY

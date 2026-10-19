@@ -27,4 +27,9 @@ class H(http.server.BaseHTTPRequestHandler):
         if kind == "cloudflare": return self.send(200, b"<html><title>Just a moment...</title>checking your browser</html>")
         if kind == "echo":     return self.send(200, self.path.encode())
         self.send(404)
-http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+# odin fires a bunch of requests at once. python's default listen queue is 5, and macos
+# refuses anything past that instead of waiting, so the test would see fake failures
+class Server(http.server.ThreadingHTTPServer):
+    request_queue_size = 128
+    daemon_threads = True
+Server(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
