@@ -3,6 +3,7 @@
 
 static const char *usage =
     "usage: odin <command> [flags] [args]\n"
+    "       odin                 (no command) interactive mode, type exit to leave\n"
     "\n"
     "commands:\n"
     "  meta <path...>       rip metadata out of files and folders\n"
@@ -21,7 +22,8 @@ static const char *usage =
     "user flags:\n"
     "  -a, --all            also list the sites where it wasn't found\n"
     "  -t, --timeout <sec>  per site timeout (default 15)\n"
-    "      --sites <file>   use your own site list instead of the built in one\n"
+    "      --sites <file>   use your own site list (text, odin json, or whatsmyname's\n"
+    "                       wmn-data.json) instead of the built in one\n"
     "      --list           print the site list and exit\n"
     "      --selftest       check every site's rule still works\n"
     "\n"

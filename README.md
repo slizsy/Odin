@@ -40,8 +40,7 @@ installing anything.
 
 **updating:** `odin upgrade` grabs the newest release for your os, checks its sha256, and swaps
 itself in. `odin upgrade --check` just tells you if there's a new one. if odin lives somewhere
-your user can't write (like `/usr/local/bin`), run `sudo odin upgrade`. while the repo is
-private, set `GITHUB_TOKEN` to a token that can read it first.
+your user can't write (like `/usr/local/bin`), run `sudo odin upgrade`.
 
 or grab the file yourself from the [releases page](https://github.com/slizsy/Odin/releases/latest):
 
@@ -98,10 +97,27 @@ odin meta -x weird.heic              # full dump via exiftool (if installed)
 
 short flags stack, so `-rfq` works. use `--` before a filename that starts with a dash.
 
+## interactive mode
+
+just type `odin`. the banner shows once and you get a prompt where you run commands
+without typing `odin` every time:
+
+```
+odin> meta ~/Downloads/IMG_1930.HEIC
+odin> user johndoe -a
+odin> help
+odin> exit
+```
+
+- up / down arrows go back through what you typed, ctrl+a / ctrl+e / ctrl+w etc work like a normal terminal
+- drag a file into the window to paste its path (spaces and all)
+- ctrl+c stops a running scan and drops you back at the prompt, ctrl+d or `exit` leaves
+- `odin meta ...` and `odin user ...` from your normal terminal still work exactly like before
+
 ## username hunting: `odin user`
 
 ```sh
-odin user johndoe                    # check 45 sites, show where it exists
+odin user johndoe                    # check ~240 sites, show where it exists
 odin user johndoe jdoe99 -a          # several names, also list the misses
 odin user johndoe --json | jq        # json for scripting
 odin user --list                     # see every site it checks
@@ -112,44 +128,80 @@ odin user --selftest                 # make sure every site's rule still works
 | --- | --- |
 | `-a`, `--all` | also list sites where the name wasn't found |
 | `-t`, `--timeout <sec>` | per site timeout, default 15 |
-| `--sites <file>` | use your own site list |
+| `--sites <file>` | use your own site list (see below) |
 | `--list` | print the site list and exit |
-| `--selftest` | test every site with a known real account + a gibberish name |
-
-all requests go out in parallel, so the whole list takes a few seconds.
+| `--selftest` | test every site with a known real account + a known fake one |
 
 every result is one of three things:
 
 - **found**: the account exists
-- **not found**: the site said there's no such account
-- **couldn't check**: the site blocked us (403, rate limit, bot check page, timeout).
+- **not found**: the site said there's no such account (or its username rules say the name can't exist there)
+- **couldn't check**: the site blocked us, rate limited us, showed a bot check page or timed out.
   odin won't guess here, so you don't get fake hits
 
-sites change their pages all the time, so run `odin user --selftest` now and then. it flags
-any site whose rule went stale. instagram, x, tiktok and facebook aren't in the list on
-purpose: they show a login wall for every name, so all you'd get is false positives.
+### getting blocked less
 
-want to go through tor or a proxy? libcurl picks it up from the environment:
+- the built in list comes from [maigret](https://github.com/soxoj/maigret) and
+  [sherlock](https://github.com/sherlock-project/sherlock)'s maintained site data, minus every site
+  that needs a real browser (tls fingerprinting, javascript challenges, login walls). those can
+  only ever say "couldn't check", so odin doesn't bother them
+- it uses a site's hidden api address when there is one, those block a lot less than pages
+- every request looks like one of 6 real browsers (chrome, firefox, safari, edge on windows / mac),
+  with the headers that browser actually sends. cookies are kept across redirects
+- max 2 requests per site at once. a dropped connection, 429 or 5xx gets one retry after a
+  short pause as a different browser, and odin honors the site's `Retry-After`
+- the site's own username rules are checked first, so it never asks a site about a name that
+  can't exist there
+- some sites block vpn and cloud ips no matter what. odin says so in the "couldn't check" reason
+
+sites change their pages all the time, so run `odin user --selftest` now and then, it flags any
+rule that went stale. want to go through tor or a proxy? libcurl picks it up from the environment:
 `ALL_PROXY=socks5h://127.0.0.1:9050 odin user johndoe`
 
-### adding sites
+### your own site lists
 
-the list is plain text, one site per line:
+`--sites` takes three kinds of file:
+
+**whatsmyname's list** (700 sites, kept up to date by that project): download `wmn-data.json` from
+https://github.com/WebBreacher/WhatsMyName and run `odin user --sites wmn-data.json johndoe`.
+
+**plain text**, one site per line:
 
 ```
-# name   | url to check                     | check                 | profile url (optional) | known real user (optional)
-GitHub   | https://github.com/{}            | status                |                        | torvalds
-Steam    | https://steamcommunity.com/id/{} | absent:could not be found |                    | gabelogannewell
+# name   | url to check                     | check                     | profile url (optional) | known real user (optional)
+GitHub   | https://github.com/{}            | status                    |                        | torvalds
+Steam    | https://steamcommunity.com/id/{} | absent:could not be found |                        | gabelogannewell
 ```
 
-`{}` is where the username goes. the check can be:
+`{}` is where the username goes. the check is `status` (200 = found, 404 = not found),
+`absent:<text>` (found unless the page has that text) or `present:<text>` (found only if it does).
 
-- `status`: 200 = found, 404 = not found
-- `absent:<text>`: found unless the page contains that text
-- `present:<text>`: found only if the page contains that text
+**odin json**, same format as the built in list, for when you need more:
 
-save your own list to a file and run `odin user --sites mysites.txt johndoe`, or add lines
-to the built in list in `src/modules/user/sites.c` and run `make`.
+```json
+{"sites": [{
+  "name": "Example", "url": "https://example.com/u/{}", "probe": "https://api.example.com/users/{}",
+  "check": "strict", "found_code": 200, "present": ["\"id\":"], "missing_code": 404, "absent": ["not found"],
+  "headers": {"Accept": "application/json"}, "regex": "^[a-z0-9_]{3,20}$",
+  "claimed": "realuser", "unclaimed": "noonewouldeverusethis7"
+}]}
+```
+
+`check` is `status`, `message` (uses `present` / `absent`) or `strict` (whatsmyname style: found
+only on `found_code` + `present`, not found only on `missing_code` + `absent`, anything else is
+"couldn't check"). optional: `post` (send this body as a POST), `blocked` (`{"page text": "reason"}`),
+`strip` (characters to drop from the username).
+
+the built in list is generated, to refresh it from the latest maigret / sherlock data:
+
+```sh
+git clone --depth 1 https://github.com/soxoj/maigret /tmp/maigret
+git clone --depth 1 https://github.com/sherlock-project/sherlock /tmp/sherlock
+python3 tools/gen_sites.py --maigret /tmp/maigret --sherlock /tmp/sherlock
+make
+```
+
+odin's own extra rules live in `data/sites-extra.json`. credits and licenses are in `THIRD_PARTY_NOTICES.md`.
 
 ## what `odin meta` reads
 
@@ -177,10 +229,11 @@ src/
   main.c              sends each command to its module
   modules/
     meta/             the `odin meta` command
-    user/             the `odin user` command: site list, parallel checker, output
+    shell/            interactive mode (odin with no command)
+    user/             the `odin user` command: site loaders, parallel checker, output
     upgrade/          the `odin upgrade` command
     usage.h           the help text
-  core/               the plumbing: results, file reading, folder walking, sha256, string helpers
+  core/               the plumbing: results, files, folders, sha256, json, https, regex, os differences
   parsers/
     parsers.c         sniffs what a file actually is and sends it to the right parser
     images/           jpeg, png, webp, exif, iptc
@@ -189,7 +242,9 @@ src/
   analysis/           turns raw fields into findings
   output/             pretty terminal output + json
   external/           exiftool hookup
-  ui/                 colors + the banner
+  ui/                 colors, the banner, the line editor for interactive mode
+tools/                gen_sites.py, builds the username site list
+data/                 odin's own extra username site rules
 tests/                unit tests, fuzz harness, fake websites for the user module
 ```
 

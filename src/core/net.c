@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "core/platform.h"
 #include "ui/banner.h"
 
 // https certs. windows: use the system cert store. linux: a portable build might have been
@@ -59,6 +60,12 @@ static size_t on_data(char *data, size_t size, size_t n, void *ud) {
     return len;
 }
 
+// ctrl+c in the shell: bail out of a download instead of finishing it
+static int on_progress(void *ud, curl_off_t a, curl_off_t b, curl_off_t c, curl_off_t d) {
+    (void)ud, (void)a, (void)b, (void)c, (void)d;
+    return odin_interrupted ? 1 : 0;
+}
+
 bool net_get(const char *url, const char *const *headers, size_t max, long *status, sbuf *body, char *err,
              size_t errlen) {
     CURL *e = curl_easy_init();
@@ -81,6 +88,8 @@ bool net_get(const char *url, const char *const *headers, size_t max, long *stat
     curl_easy_setopt(e, CURLOPT_ERRORBUFFER, cerr);
     curl_easy_setopt(e, CURLOPT_WRITEFUNCTION, on_data);
     curl_easy_setopt(e, CURLOPT_WRITEDATA, &ctx);
+    curl_easy_setopt(e, CURLOPT_XFERINFOFUNCTION, on_progress);
+    curl_easy_setopt(e, CURLOPT_NOPROGRESS, 0L);
     net_apply_tls(e);
     CURLcode rc = curl_easy_perform(e);
     curl_easy_getinfo(e, CURLINFO_RESPONSE_CODE, status);
