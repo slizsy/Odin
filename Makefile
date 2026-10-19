@@ -6,8 +6,10 @@
 #   make install      copy it to /usr/local/bin
 
 CC       ?= cc
+# CFLAGS is yours to override (make CFLAGS="-O3 -march=native"), odin's must-haves live in
+# ODIN_CFLAGS so a command-line CFLAGS can't wipe out -Isrc and friends
 CFLAGS   ?= -O2 -g
-CFLAGS   += -std=gnu11 -Wall -Wextra -Isrc
+ODIN_CFLAGS := -std=gnu11 -Wall -Wextra -Isrc
 DEPFLAGS ?= -MMD -MP
 LDLIBS   += -lz -lm -lcurl
 PREFIX   ?= /usr/local
@@ -16,7 +18,7 @@ SAN      ?= -fsanitize=address,undefined
 ifeq ($(OS),Windows_NT)
   EXE     := odin.exe
   # mingw's c99 printf (%zu and friends)
-  CFLAGS  += -D__USE_MINGW_ANSI_STDIO=1
+  ODIN_CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
   RES     := build/odin_res.o
   # no sanitizers in mingw
   SAN     :=
@@ -26,7 +28,7 @@ else
 endif
 
 ifeq ($(STATIC),1)
-  CFLAGS  += -DCURL_STATICLIB
+  ODIN_CFLAGS += -DCURL_STATICLIB
   LDLIBS  := $(shell pkg-config --static --libs libcurl zlib) -lm
   LDFLAGS += -static
 endif
@@ -35,11 +37,11 @@ SRC  := $(shell find src -name '*.c')
 OBJ  := $(SRC:src/%.c=build/%.o)
 
 $(EXE): $(OBJ) $(RES)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(ODIN_CFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 build/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(CC) $(ODIN_CFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 build/odin_res.o: packaging/windows/odin.rc packaging/windows/odin.manifest
 	@mkdir -p build
@@ -49,7 +51,7 @@ build/odin_res.o: packaging/windows/odin.rc packaging/windows/odin.manifest
 # then the username engine against a fake local web server (needs python3)
 test: $(EXE) $(SRC)
 	@mkdir -p build
-	$(CC) $(filter-out -O2,$(CFLAGS)) -g $(SAN) $(LDFLAGS) -o build/test_odin \
+	$(CC) $(ODIN_CFLAGS) $(filter-out -O2,$(CFLAGS)) -g $(SAN) $(LDFLAGS) -o build/test_odin \
 		tests/test_odin.c $(filter-out src/main.c,$(SRC)) $(LDLIBS)
 	./build/test_odin
 	./tests/user/run.sh $(CURDIR)/$(EXE)
