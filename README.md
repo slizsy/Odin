@@ -40,8 +40,7 @@ installing anything.
 
 **updating:** `odin upgrade` grabs the newest release for your os, checks its sha256, and swaps
 itself in. `odin upgrade --check` just tells you if there's a new one. if odin lives somewhere
-your user can't write (like `/usr/local/bin`), run `sudo odin upgrade`. while the repo is
-private, set `GITHUB_TOKEN` to a token that can read it first.
+your user can't write (like `/usr/local/bin`), run `sudo odin upgrade`.
 
 or grab the file yourself from the [releases page](https://github.com/slizsy/Odin/releases/latest):
 
