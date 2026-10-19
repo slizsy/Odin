@@ -47,8 +47,9 @@ build/odin_res.o: packaging/windows/odin.rc packaging/windows/odin.manifest
 	@mkdir -p build
 	windres -I packaging/windows $< -O coff -o $@
 
-# unit tests (with address sanitizer where it exists, so memory bugs blow up loudly),
-# then the username engine against a fake local web server (needs python3)
+# unit tests (with address sanitizer where it exists, so memory bugs blow up loudly), then
+# the username engine + upgrade against fake local servers, then interactive mode through a
+# real terminal (mac / linux). needs python3
 test: $(EXE) $(SRC)
 	@mkdir -p build
 	$(CC) $(ODIN_CFLAGS) $(filter-out -O2,$(CFLAGS)) -g $(SAN) $(LDFLAGS) -o build/test_odin \
@@ -56,6 +57,9 @@ test: $(EXE) $(SRC)
 	./build/test_odin
 	./tests/user/run.sh $(CURDIR)/$(EXE)
 	./tests/upgrade/run.sh $(CURDIR)/$(EXE)
+ifneq ($(OS),Windows_NT)
+	python3 tests/shell/pty_test.py $(CURDIR)/$(EXE)
+endif
 
 # throws random junk at the parsers (needs clang + libfuzzer). FUZZ_TIME is in seconds
 FUZZ_TIME ?= 60

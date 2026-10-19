@@ -1,0 +1,15 @@
+{
+  "comment": "odin's own site rules, for sites the maigret / sherlock data doesn't cover. same format as odin user --sites json files",
+  "sites": [
+    {
+      "name": "Mastodon",
+      "url": "https://mastodon.social/@{}",
+      "probe": "https://mastodon.social/api/v1/accounts/lookup?acct={}",
+      "check": "status",
+      "headers": {"Accept": "application/json"},
+      "regex": "^[a-zA-Z0-9_]+$",
+      "claimed": "Gargron",
+      "unclaimed": "noonewouldeverusethis7"
+    }
+  ]
+}

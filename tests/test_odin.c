@@ -8,6 +8,8 @@
 #include "analysis/findings.h"
 #include "core/extract.h"
 #include "core/json.h"
+#include "core/regex.h"
+#include "modules/shell/shell.h"
 #include "core/platform.h"
 #include "core/sha256.h"
 #include "core/util.h"
@@ -451,7 +453,8 @@ static void test_sites_file(void) {
     CHECK(sites_load_file(&l, path, err, sizeof err), "good file failed: %s", err);
     CHECK(l.count == 2, "count = %zu", l.count);
     if (l.count == 2) {
-        CHECK(l.items[1].kind == CHECK_ABSENT && !strcmp(l.items[1].text, "not found"), "absent rule");
+        CHECK(l.items[1].kind == CHECK_MESSAGE && l.items[1].absent.n == 1 && !strcmp(l.items[1].absent.v[0], "not found"),
+              "absent rule");
         CHECK(!strcmp(l.items[1].profile, "https://b.com/{}") && !strcmp(l.items[1].claimed, "bob"), "profile/claimed");
         CHECK(!strcmp(l.items[0].profile, l.items[0].probe) && !l.items[0].claimed, "defaults");
     }
@@ -470,8 +473,73 @@ static void test_sites_file(void) {
 
     site_list d = {0};
     sites_load_default(&d);
-    CHECK(d.count >= 40, "built in list only has %zu sites", d.count);
+    CHECK(d.count >= 200, "built in list only has %zu sites", d.count);
+    // every built in site has to be usable as-is
+    for (size_t i = 0; i < d.count; i++) {
+        const site_t *x = &d.items[i];
+        CHECK(strstr(x->probe, "{}") || (x->post && strstr(x->post, "{}")), "%s has nowhere to put the username", x->name);
+        CHECK(x->claimed != NULL, "%s has no known account for --selftest", x->name);
+        if (x->regex) {
+            bool unsupported;
+            rx_search(x->regex, "test", &unsupported);
+            CHECK(!unsupported, "%s's username rule can't be read: %s", x->name, x->regex);
+        }
+    }
     sites_free(&d);
+}
+
+static void test_regex(void) {
+    puts("username rules (regex)");
+    struct {
+        const char *pat, *text;
+        bool want;
+    } v[] = {
+        {"^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$", "good-name", true}, // github's rule
+        {"^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$", "bad--name", false},
+        {"^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$", "trailing-", false},
+        {"^[^\\.]+$", "no.dots", false},
+        {"^[\\w]{4,30}$", "j\xc3\xb6hn", true}, // \w matches letters from any language, like python
+        {"^[^\\u3040-\\u30ff\\u4e00-\\u9fff]+$", "\xe5\xb1\xb1\xe7\x94\xb0", false},
+        {"^[a-zA-Z0-9_\\.]{3,49}(?<!\\.com|\\.org)$", "shop.com", false},
+        {"^[a-zA-Z0-9_\\.]{3,49}(?<!\\.com|\\.org)$", "shop.co", true},
+        {"^(?!id\\d)[a-zA-Z0-9_]*$", "id123", false},
+        {"^(?!id\\d)[a-zA-Z0-9_]*$", "idea", true},
+        {"^[\\w-]{,5}$", "abcdef", false},
+        {"[A-Za-z0-9][A-Za-z0-9_-]{0,24}", "--x", true}, // no anchors = search anywhere
+    };
+    for (size_t i = 0; i < sizeof v / sizeof *v; i++) {
+        bool u, got = rx_search(v[i].pat, v[i].text, &u);
+        CHECK(got == v[i].want && !u, "%s on '%s': got %d (unsupported=%d)", v[i].pat, v[i].text, got, u);
+    }
+    bool u;
+    CHECK(rx_search("(?P<x>a)", "a", &u) && u, "unsupported syntax should allow the name and say so");
+    // a regex bomb has to finish fast, and giving up means allowing the name, never blocking it
+    bool got = rx_search("^(a+)+$", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!", &u);
+    CHECK(u ? got : !got, "regex bomb: got %d unsupported %d", got, u);
+}
+
+static void test_shell_split(void) {
+    puts("shell word splitting");
+    char err[128], **w;
+    int n = shell_split("meta -rf \"my photos\" 'it''s' a\\ b", &w, err, sizeof err);
+#ifdef _WIN32
+    CHECK(n == 5, "words = %d", n); // no backslash escapes on windows
+#else
+    CHECK(n == 5 && !strcmp(w[2], "my photos") && !strcmp(w[3], "its") && !strcmp(w[4], "a b"), "split = %d", n);
+#endif
+    shell_free_words(w, n);
+    n = shell_split("  ", &w, err, sizeof err);
+    CHECK(n == 0, "blank line = %d words", n);
+    shell_free_words(w, n);
+    CHECK(shell_split("meta \"oops", &w, err, sizeof err) < 0 && strstr(err, "quote"), "unclosed quote: %s", err);
+    const char *home = platform_home();
+    if (home) {
+        n = shell_split("~/x ~ a~b", &w, err, sizeof err);
+        char *want = xprintf("%s/x", home);
+        CHECK(n == 3 && !strcmp(w[0], want) && !strcmp(w[1], home) && !strcmp(w[2], "a~b"), "tilde");
+        free(want);
+        shell_free_words(w, n);
+    }
 }
 
 static void test_json(void) {
@@ -514,6 +582,8 @@ int main(void) {
     test_json();
     test_site_url();
     test_sites_file();
+    test_regex();
+    test_shell_split();
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }

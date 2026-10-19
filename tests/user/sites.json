@@ -1,0 +1,20 @@
+{
+  "sites": [
+    {"name": "Flaky429", "url": "http://127.0.0.1:PORT/flaky429/{}", "check": "status"},
+    {"name": "Flaky503", "url": "http://127.0.0.1:PORT/flaky503/{}", "check": "status"},
+    {"name": "LongWait", "url": "http://127.0.0.1:PORT/longwait/{}", "check": "status"},
+    {"name": "Headers", "url": "http://127.0.0.1:PORT/headers/{}", "check": "strict", "found_code": 200,
+     "present": ["x-odin-test: yes"], "headers": {"X-Odin-Test": "yes"}},
+    {"name": "BrowserLike", "url": "http://127.0.0.1:PORT/headers/{}", "check": "message",
+     "present": ["sec-fetch-mode: navigate"]},
+    {"name": "PostApi", "url": "http://127.0.0.1:PORT/u/{}", "probe": "http://127.0.0.1:PORT/api/lookup",
+     "post": "{\"user\":\"{}\"}", "check": "strict", "found_code": 200, "present": ["\"exists\":true"],
+     "missing_code": 200, "absent": ["\"exists\":false"]},
+    {"name": "Strict", "url": "http://127.0.0.1:PORT/strict/{}", "check": "strict", "found_code": 200,
+     "present": ["profile-header"], "missing_code": 404, "absent": ["<title>Nope</title>"]},
+    {"name": "SlowBan", "url": "http://127.0.0.1:PORT/slowban/{}", "check": "status",
+     "blocked": {"Please wait a few minutes": "Rate limited"}},
+    {"name": "LettersOnly", "url": "http://127.0.0.1:PORT/boom/{}", "check": "status", "regex": "^[a-z]+$"},
+    {"name": "StripDots", "url": "http://127.0.0.1:PORT/status/{}", "check": "status", "strip": "."}
+  ]
+}

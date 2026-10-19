@@ -3,6 +3,7 @@
 
 #include "core/platform.h"
 #include "modules/meta/meta_cmd.h"
+#include "modules/shell/shell.h"
 #include "modules/upgrade/upgrade_cmd.h"
 #include "modules/usage.h"
 #include "modules/user/user_cmd.h"
@@ -12,11 +13,11 @@
 int main(int argc, char **argv) {
     platform_init();
     color_init();
-    if (argc < 2 || !strcmp(argv[1], "help") || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
+    // just `odin`: interactive mode
+    if (argc < 2) return run_shell();
+    if (!strcmp(argv[1], "help") || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
         banner_print();
         fputs(usage, stdout);
-        // double-clicked on windows? keep the window open so they can actually read it
-        if (argc < 2) platform_pause_if_launched_from_explorer();
         return 0;
     }
     const char *cmd = argv[1];

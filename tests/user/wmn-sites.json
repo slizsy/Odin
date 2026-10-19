@@ -1,0 +1,12 @@
+{
+  "license": ["test file in whatsmyname's format"],
+  "sites": [
+    {"name": "WmnStrict", "uri_check": "http://127.0.0.1:PORT/strict/{account}", "uri_pretty": "http://profile.example/{account}",
+     "e_code": 200, "e_string": "profile-header", "m_code": 404, "m_string": "<title>Nope</title>", "known": ["alice"], "cat": "test"},
+    {"name": "WmnPost", "uri_check": "http://127.0.0.1:PORT/api/lookup", "post_body": "{\"user\":\"{account}\"}",
+     "headers": {"Content-Type": "application/json"},
+     "e_code": 200, "e_string": "\"exists\":true", "m_code": 200, "m_string": "\"exists\":false", "known": ["alice"], "cat": "test"},
+    {"name": "WmnDead", "uri_check": "http://127.0.0.1:PORT/boom/{account}", "e_code": 200, "e_string": "x", "m_code": 404,
+     "m_string": "y", "known": ["alice"], "cat": "test", "valid": false}
+  ]
+}
