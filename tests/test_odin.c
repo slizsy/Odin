@@ -523,7 +523,9 @@ static void test_shell_split(void) {
     char err[128], **w;
     int n = shell_split("meta -rf \"my photos\" 'it''s' a\\ b", &w, err, sizeof err);
 #ifdef _WIN32
-    CHECK(n == 5, "words = %d", n); // no backslash escapes on windows
+    // \ is the folder separator on windows, not an escape, so "a\ b" stays two words: "a\" and "b"
+    CHECK(n == 6 && !strcmp(w[2], "my photos") && !strcmp(w[3], "its") && !strcmp(w[4], "a\\") && !strcmp(w[5], "b"),
+          "words = %d", n);
 #else
     CHECK(n == 5 && !strcmp(w[2], "my photos") && !strcmp(w[3], "its") && !strcmp(w[4], "a b"), "split = %d", n);
 #endif
