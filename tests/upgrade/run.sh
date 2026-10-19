@@ -29,7 +29,8 @@ try() {
     mkdir -p "$TMP/bin" && cp "$ODIN" "$TMP/bin/odin$EXT" && chmod +x "$TMP/bin/odin$EXT"
     out=$(ODIN_RELEASES_API="http://127.0.0.1:$PORT/api/$1" "$TMP/bin/odin$EXT" upgrade $2 2>&1); code=$?
 }
-same_as() { cmp -s "$TMP/bin/odin$EXT" "$1"; }
+# python instead of cmp, windows' msys shell doesn't ship cmp
+same_as() { "$PY" -c "import sys; sys.exit(open(sys.argv[1],'rb').read() != open(sys.argv[2],'rb').read())" "$TMP/bin/odin$EXT" "$1"; }
 
 try old ""
 [ $code = 0 ] && echo "$out" | grep -q "latest version" && same_as "$ODIN" && ok || bad "already up to date: $out"
