@@ -65,11 +65,15 @@ static int name_width(const site_list *s) {
     return (int)w;
 }
 
+// sites cut off by ctrl+c, they get counted instead of listed
+static bool stopped(const hit_t *x) { return x->state == HIT_UNKNOWN && x->detail && !strcmp(x->detail, "stopped"); }
+
 static void print_pretty(hit_list *h, const char *user, size_t off, const site_list *sites, bool all) {
-    size_t n = sites->count, found = 0, missing = 0, unknown = 0;
+    size_t n = sites->count, found = 0, missing = 0, unknown = 0, halted = 0;
     for (size_t i = 0; i < n; i++) {
-        hit_state s = h->hits[off + i].state;
-        found += s == HIT_FOUND, missing += s == HIT_MISSING, unknown += s == HIT_UNKNOWN;
+        const hit_t *x = &h->hits[off + i];
+        if (stopped(x)) halted++;
+        else found += x->state == HIT_FOUND, missing += x->state == HIT_MISSING, unknown += x->state == HIT_UNKNOWN;
     }
     int w = name_width(sites);
     char head[300];
@@ -91,7 +95,7 @@ static void print_pretty(hit_list *h, const char *user, size_t off, const site_l
                sections[s].st == HIT_FOUND ? c_red(label) : sections[s].st == HIT_UNKNOWN ? c_yellow(label) : c_gray(label));
         for (size_t i = 0; i < n; i++) {
             hit_t *x = &h->hits[off + i];
-            if (x->state != sections[s].st) continue;
+            if (x->state != sections[s].st || stopped(x)) continue;
             int pad = w - (int)utf8_width(x->site->name);
             const char *extra = x->detail ? x->detail : x->url;
             printf("%s   %s%*s  %s\n", BAR, x->state == HIT_FOUND ? c_bold(x->site->name) : c_gray(x->site->name),
@@ -105,7 +109,9 @@ static void print_pretty(hit_list *h, const char *user, size_t off, const site_l
     snprintf(a, sizeof a, "%zu found", found);
     snprintf(b, sizeof b, "%zu not found", missing);
     snprintf(c, sizeof c, "%zu couldn't check", unknown);
-    printf("%s %s%s%s%s%s\n\n", c_gray("──"), c_red(a), c_gray(" · "), b, c_gray(" · "), c_yellow(c));
+    printf("%s %s%s%s%s%s", c_gray("──"), c_red(a), c_gray(" · "), b, c_gray(" · "), c_yellow(c));
+    if (halted) printf("%s%zu stopped", c_gray(" · "), halted);
+    printf("\n\n");
 }
 
 // a name nobody will ever register
@@ -140,9 +146,10 @@ static int selftest(const site_list *sites, long timeout, bool json) {
         return 1;
     }
 
-    // both runs go fully parallel: every site with gibberish, every site with its known name
+    // both runs go fully parallel: every site with a fake name, every site with its known real one
     char **fakes = calloc(real.count, sizeof *fakes);
-    for (size_t i = 0; i < real.count; i++) fakes[i] = fake;
+    // the site lists name a username known not to exist there, else make one up
+    for (size_t i = 0; i < real.count; i++) fakes[i] = real.items[i].unclaimed ? real.items[i].unclaimed : fake;
     check_pairs(&real, fakes, timeout, progress, &bad);
     check_pairs(&real, names, timeout, progress, &good);
     free(fakes);
@@ -249,6 +256,7 @@ int run_user(int argc, char **argv) {
             printf("%s%*s  %s\n", sites.items[i].name, w - (int)utf8_width(sites.items[i].name), "",
                    c_gray(sites.items[i].profile));
         printf("\n%zu sites\n", sites.count);
+        if (!fl.sites_file) printf("%s\n", c_gray(sites_builtin_credit));
         sites_free(&sites);
         free(users);
         return 0;
@@ -276,6 +284,7 @@ int run_user(int argc, char **argv) {
     } else {
         hit_list hits = {0};
         check_all(&sites, users, nusers, fl.timeout, progress, &hits);
+        if (show_progress) fputs("\r\x1b[K", stderr); // clear the progress line even if ctrl+c cut it short
         if (fl.json) print_json(&hits, users, nusers, sites.count);
         else
             for (int u = 0; u < nusers; u++) print_pretty(&hits, users[u], (size_t)u * sites.count, &sites, fl.all);

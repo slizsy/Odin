@@ -1,5 +1,7 @@
 #include "core/platform.h"
 
+volatile int odin_interrupted;
+
 #include <stdio.h>
 #include <string.h>
 
@@ -35,14 +37,19 @@ void platform_init(void) {
 bool platform_is_tty(int fd) { return _isatty(fd) != 0; }
 bool platform_colors_ok(void) { return vt_ok; }
 
-void platform_pause_if_launched_from_explorer(void) {
-    // when explorer starts us, we're the only process attached to the console
-    DWORD procs[2];
-    if (GetConsoleProcessList(procs, 2) == 1) {
-        fputs("\npress enter to close (tip: run odin from a terminal so it sticks around)\n", stdout);
-        fflush(stdout);
-        getchar();
-    }
+static BOOL WINAPI on_ctrl(DWORD type) {
+    if (type != CTRL_C_EVENT && type != CTRL_BREAK_EVENT) return FALSE;
+    if (odin_interrupted) ExitProcess(130); // second press, they really mean it
+    odin_interrupted = 1;
+    return TRUE;
+}
+
+void platform_catch_interrupts(void) { SetConsoleCtrlHandler(on_ctrl, TRUE); }
+uint64_t platform_now_ms(void) { return GetTickCount64(); }
+
+const char *platform_home(void) {
+    const char *h = getenv("USERPROFILE");
+    return h && *h ? h : NULL;
 }
 
 int stat_nofollow(const char *path, struct stat *st) { return stat(path, st); }
@@ -90,7 +97,10 @@ bool platform_replace_self(const char *path, const unsigned char *data, size_t n
 #else
 #include <errno.h>
 #include <fcntl.h>
+#include <pwd.h>
+#include <signal.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #ifdef __APPLE__
@@ -100,7 +110,32 @@ bool platform_replace_self(const char *path, const unsigned char *data, size_t n
 void platform_init(void) {}
 bool platform_is_tty(int fd) { return isatty(fd) != 0; }
 bool platform_colors_ok(void) { return true; }
-void platform_pause_if_launched_from_explorer(void) {}
+static void on_sigint(int sig) {
+    (void)sig;
+    if (odin_interrupted) _exit(130); // second press, they really mean it
+    odin_interrupted = 1;
+}
+
+void platform_catch_interrupts(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = on_sigint;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+}
+
+uint64_t platform_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+}
+
+const char *platform_home(void) {
+    const char *h = getenv("HOME");
+    if (h && *h) return h;
+    struct passwd *pw = getpwuid(getuid());
+    return pw && pw->pw_dir ? pw->pw_dir : NULL;
+}
 int stat_nofollow(const char *path, struct stat *st) { return lstat(path, st); }
 bool is_path_sep(char c) { return c == '/'; }
 unsigned platform_pid(void) { return (unsigned)getpid(); }
