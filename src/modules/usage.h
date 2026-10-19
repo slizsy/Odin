@@ -14,6 +14,8 @@ static const char *usage =
     "  -r, --recursive      walk folders all the way down\n"
     "  -f, --findings       only show findings, skip the raw field dump\n"
     "  -x, --exiftool       full dump through exiftool if it's installed\n"
+    "  reads jpeg, heic (iphone), avif, png, webp, tiff + camera raws, pdf,\n"
+    "  docx/xlsx/pptx, odt/ods/odp, plus xmp hiding in pretty much anything\n"
     "\n"
     "user flags:\n"
     "  -a, --all            also list the sites where it wasn't found\n"

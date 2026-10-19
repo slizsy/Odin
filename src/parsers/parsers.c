@@ -32,11 +32,21 @@ void parse_bytes(result_t *r, const unsigned char *b, size_t n, const char *pfx,
         if (depth == 0) parse_office(r, b, n, pfx, depth);
     } else {
         if (n >= 12 && !memcmp(b + 4, "ftyp", 4)) {
-            char t[64];
-            snprintf(t, sizeof t, "ISO media (%.4s)", (const char *)b + 8);
-            for (char *c = t; *c; c++)
+            char brand[5] = {0}, t[64];
+            memcpy(brand, b + 8, 4);
+            for (char *c = brand; *c; c++)
                 if (*c < 0x20 || *c > 0x7e) *c = '?';
+            if (!strcmp(brand, "heic") || !strcmp(brand, "heix") || !strcmp(brand, "hevc") || !strcmp(brand, "heim") ||
+                !strcmp(brand, "heis") || !strcmp(brand, "mif1") || !strcmp(brand, "msf1"))
+                snprintf(t, sizeof t, "HEIC image");
+            else if (!strcmp(brand, "avif") || !strcmp(brand, "avis"))
+                snprintf(t, sizeof t, "AVIF image");
+            else
+                snprintf(t, sizeof t, "ISO media (%s)", brand);
             result_set_type(r, pfx, t);
+            // heic/avif keep exif + xmp as items in the meta box. the xmp sweep below
+            // still runs too, it catches packets that aren't proper items
+            parse_heif(r, b, n, pfx);
         }
         // last resort, tons of formats (psd, ai, mp4, svg...) hide an xmp packet somewhere
         snprintf(g, sizeof g, "%sXMP", pfx);

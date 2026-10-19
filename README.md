@@ -150,7 +150,7 @@ to the built in list in `src/modules/user/sites.c` and run `make`.
 
 | format | what it pulls |
 | --- | --- |
-| jpeg / tiff / camera raw / webp | exif (camera, serial numbers, owner, software, timestamps), gps, xmp, iptc (photographer, city, country), comments |
+| jpeg / heic (iphone) / avif / tiff / camera raw / webp | exif (camera, serial numbers, owner, software, timestamps), gps, xmp, iptc (photographer, city, country), comments |
 | png | text chunks, exif, xmp, last modified time |
 | pdf | info dict from every save (so edited fields show their old values), xmp, version, how many times it was re-saved |
 | docx / xlsx / pptx | author, last modified by, company, app + version, edit time, template paths, file links to local paths or network shares, custom props, and exif/gps from every image inside the doc |
