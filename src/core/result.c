@@ -6,14 +6,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/platform.h"
 #include "core/util.h"
 
 result_t *result_new(const char *path) {
     result_t *r = calloc(1, sizeof *r);
     if (!r) exit(1);
     r->path = xstrdup(path);
-    const char *slash = strrchr(path, '/');
-    r->name = xstrdup(slash ? slash + 1 : path);
+    r->name = xstrdup(path_base(path));
     r->type = xstrdup("unknown");
     r->engine = "native";
     return r;

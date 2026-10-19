@@ -1,0 +1,15 @@
+# fake sites for the integration test, PORT gets swapped in by run.sh
+StatusSite     | http://127.0.0.1:PORT/status/{}    | status | | alice
+AbsentSite     | http://127.0.0.1:PORT/absent/{}    | absent:no such user | http://profile.example/{} | alice
+PresentSite    | http://127.0.0.1:PORT/present/{}   | present:"id" | | alice
+RedirectSite   | http://127.0.0.1:PORT/redirect/{}  | status | | alice
+SubdomainSite  | http://{}.localhost:PORT/          | status | | alice
+GoneSite       | http://127.0.0.1:PORT/gone/{}      | status
+EmptySite      | http://127.0.0.1:PORT/empty/{}     | status
+BlockedSite    | http://127.0.0.1:PORT/blocked/{}   | status
+RateSite       | http://127.0.0.1:PORT/ratelimit/{} | status
+BoomSite       | http://127.0.0.1:PORT/boom/{}      | status
+SlowSite       | http://127.0.0.1:PORT/slow/{}      | status
+BigSite        | http://127.0.0.1:PORT/big/{}       | absent:NOPE
+CloudflareSite | http://127.0.0.1:PORT/cloudflare/{} | status
+GapSite        | http://127.0.0.1:PORT/gap/{}       | absent:NOPE
