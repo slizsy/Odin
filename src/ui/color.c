@@ -2,11 +2,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+
+#include "core/platform.h"
 
 bool color_on = false;
 
-void color_init(void) { color_on = isatty(STDOUT_FILENO) && !getenv("NO_COLOR"); }
+void color_init(void) { color_on = platform_is_tty(1) && platform_colors_ok() && !getenv("NO_COLOR"); }
 
 #define RING 16
 #define SLOT 2048

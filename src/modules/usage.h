@@ -1,0 +1,38 @@
+#ifndef ODIN_USAGE_H
+#define ODIN_USAGE_H
+
+static const char *usage =
+    "usage: odin <command> [flags] [args]\n"
+    "\n"
+    "commands:\n"
+    "  meta <path...>       rip metadata out of files and folders\n"
+    "  user <name...>       hunt for a username across a pile of sites\n"
+    "  help                 this screen\n"
+    "  version              print the version\n"
+    "\n"
+    "meta flags:\n"
+    "  -r, --recursive      walk folders all the way down\n"
+    "  -f, --findings       only show findings, skip the raw field dump\n"
+    "  -x, --exiftool       full dump through exiftool if it's installed\n"
+    "\n"
+    "user flags:\n"
+    "  -a, --all            also list the sites where it wasn't found\n"
+    "  -t, --timeout <sec>  per site timeout (default 15)\n"
+    "      --sites <file>   use your own site list instead of the built in one\n"
+    "      --list           print the site list and exit\n"
+    "      --selftest       check every site's rule still works\n"
+    "\n"
+    "everywhere:\n"
+    "  -j, --json           json output (pipe it into jq or whatever)\n"
+    "  -q, --quiet          skip the banner\n"
+    "      --no-color       plain text\n"
+    "\n"
+    "coming soon: email, domain, phone, ip\n"
+    "\n"
+    "examples:\n"
+    "  odin meta photo.jpg\n"
+    "  odin meta -r ~/Downloads -f\n"
+    "  odin user johndoe\n"
+    "  odin user johndoe jdoe99 -a --json | jq\n";
+
+#endif

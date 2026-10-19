@@ -7,8 +7,10 @@
 
 #include "analysis/findings.h"
 #include "core/extract.h"
+#include "core/platform.h"
 #include "core/sha256.h"
 #include "core/util.h"
+#include "modules/user/sites.h"
 
 static int fails, checks;
 
@@ -294,6 +296,67 @@ static void test_garbage(void) {
     checks++;
 }
 
+static void test_site_url(void) {
+    puts("username urls");
+    char *u = site_url("https://x.com/{}", "a b/../c?d=1&e");
+    CHECK(u && !strcmp(u, "https://x.com/a%20b%2F..%2Fc%3Fd%3D1%26e"), "encoded = %s", u);
+    free(u);
+    u = site_url("https://{}.tumblr.com", "cool-name");
+    CHECK(u && !strcmp(u, "https://cool-name.tumblr.com"), "subdomain = %s", u);
+    free(u);
+    // dots / underscores can't go in a hostname, so that site is a no
+    CHECK(site_url("https://{}.tumblr.com", "a.b") == NULL, "dot in subdomain should be rejected");
+    CHECK(site_url("https://{}.tumblr.com", "a_b") == NULL, "underscore in subdomain should be rejected");
+    u = site_url("https://x.com/u/{}?q={}", "bob");
+    CHECK(u && !strcmp(u, "https://x.com/u/bob?q=bob"), "two placeholders = %s", u);
+    free(u);
+}
+
+static void write_text(const char *path, const char *text) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fputs(text, f);
+    fclose(f);
+}
+
+static void test_sites_file(void) {
+    puts("sites file parsing");
+    // temp file in whatever temp dir this os uses
+    const char *dir = getenv("TMPDIR");
+    if (!dir) dir = getenv("TEMP");
+    if (!dir) dir = ".";
+    char *path = xprintf("%s/odin_sites_%u.txt", dir, platform_pid());
+    const char *good = "# comment\n\nA | https://a.com/{} | status\n"
+                       "B | https://b.com/api/{} | absent:not found | https://b.com/{} | bob\n";
+    write_text(path, good);
+    site_list l = {0};
+    char err[256] = "";
+    CHECK(sites_load_file(&l, path, err, sizeof err), "good file failed: %s", err);
+    CHECK(l.count == 2, "count = %zu", l.count);
+    if (l.count == 2) {
+        CHECK(l.items[1].kind == CHECK_ABSENT && !strcmp(l.items[1].text, "not found"), "absent rule");
+        CHECK(!strcmp(l.items[1].profile, "https://b.com/{}") && !strcmp(l.items[1].claimed, "bob"), "profile/claimed");
+        CHECK(!strcmp(l.items[0].profile, l.items[0].probe) && !l.items[0].claimed, "defaults");
+    }
+    sites_free(&l);
+
+    const char *bad[] = {"A | https://a.com/nope | status\n", "A | ftp://a.com/{} | status\n",
+                         "A | https://a.com/{} | sometimes\n", "A | https://a.com/{}\n", "# only comments\n"};
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+        write_text(path, bad[i]);
+        site_list b = {0};
+        CHECK(!sites_load_file(&b, path, err, sizeof err), "bad file %zu was accepted", i);
+        sites_free(&b);
+    }
+    remove(path);
+    free(path);
+
+    site_list d = {0};
+    sites_load_default(&d);
+    CHECK(d.count >= 40, "built in list only has %zu sites", d.count);
+    sites_free(&d);
+}
+
 int main(void) {
     test_sha256();
     test_jpeg();
@@ -302,6 +365,8 @@ int main(void) {
     test_xmp();
     test_leaks();
     test_garbage();
+    test_site_url();
+    test_sites_file();
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }
