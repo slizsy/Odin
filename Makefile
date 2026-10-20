@@ -56,6 +56,7 @@ test: $(EXE) $(SRC)
 		tests/test_odin.c $(filter-out src/main.c,$(SRC)) $(LDLIBS)
 	./build/test_odin
 	./tests/user/run.sh $(CURDIR)/$(EXE)
+	./tests/lookup/run.sh $(CURDIR)/$(EXE)
 	./tests/upgrade/run.sh $(CURDIR)/$(EXE)
 ifneq ($(OS),Windows_NT)
 	python3 tests/shell/pty_test.py $(CURDIR)/$(EXE)
