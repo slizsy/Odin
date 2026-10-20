@@ -10,7 +10,11 @@
 
 #include "core/platform.h"
 #include "core/util.h"
+#include "modules/domain/domain.h"
+#include "modules/email/email.h"
+#include "modules/ip/ip.h"
 #include "modules/meta/meta_cmd.h"
+#include "modules/phone/phone.h"
 #include "modules/upgrade/upgrade_cmd.h"
 #include "modules/usage.h"
 #include "modules/user/user_cmd.h"
@@ -119,6 +123,10 @@ static const char *shell_help =
     "you're inside odin, so just type the command:\n"
     "  meta <path...>       rip metadata out of files and folders\n"
     "  user <name...>       hunt for a username across a pile of sites\n"
+    "  domain <domain...>   dns, registration, subdomains for a domain\n"
+    "  ip <addr...>         who owns an ip, geo, reverse dns\n"
+    "  email <addr...>      validate + profile an email address\n"
+    "  phone <number...>    parse + validate a phone number\n"
     "  upgrade              update odin to the newest release\n"
     "  help                 this screen (help all = every flag)\n"
     "  clear                clean the screen\n"
@@ -129,8 +137,9 @@ static const char *shell_help =
     "\n"
     "examples:\n"
     "  meta ~/Downloads/IMG_1930.HEIC\n"
-    "  meta -rf ~/Downloads\n"
-    "  user johndoe -a\n\n";
+    "  user johndoe -a\n"
+    "  domain example.com\n"
+    "  phone +14155552671\n\n";
 
 static bool is_word(const char *s, const char *const *list) {
     for (; *list; list++)
@@ -161,11 +170,17 @@ static bool run_line(char **argv, int argc) {
         run_meta(argc - 1, argv + 1);
     } else if (!strcmp(cmd, "user") || !strcmp(cmd, "u")) {
         run_user(argc - 1, argv + 1);
+    } else if (!strcmp(cmd, "domain") || !strcmp(cmd, "d")) {
+        run_domain(argc - 1, argv + 1);
+    } else if (!strcmp(cmd, "ip")) {
+        run_ip(argc - 1, argv + 1);
+    } else if (!strcmp(cmd, "email") || !strcmp(cmd, "e")) {
+        run_email(argc - 1, argv + 1);
+    } else if (!strcmp(cmd, "phone") || !strcmp(cmd, "p")) {
+        run_phone(argc - 1, argv + 1);
     } else if (!strcmp(cmd, "upgrade") || !strcmp(cmd, "update")) {
         if (run_upgrade(argc - 1, argv + 1) == 0 && !(argc > 1 && !strcmp(argv[1], "--check")))
             puts("(if it upgraded: exit and start odin again to use the new version)");
-    } else if (is_word(cmd, (const char *const[]){"email", "domain", "phone", "ip", NULL})) {
-        printf("the %s module isn't built yet\n", cmd);
     } else {
         printf("no idea what \"%s\" is, type help\n", cmd);
     }

@@ -232,3 +232,70 @@ void human_size(long long n, char *out, size_t outlen) {
     while (v >= 1024 && i < 5) v /= 1024, i++;
     snprintf(out, outlen, "%.1f %cB", v, units[i]);
 }
+
+bool is_ipv4(const char *s) {
+    unsigned o[4];
+    char extra;
+    if (sscanf(s, "%u.%u.%u.%u%c", &o[0], &o[1], &o[2], &o[3], &extra) != 4) return false;
+    for (int i = 0; i < 4; i++) if (o[i] > 255) return false;
+    return true;
+}
+
+// parse textual ipv6 into 16 bytes. handles :: compression and a trailing embedded v4.
+// not the tightest validator in the world but it rejects the obvious junk
+bool ipv6_bytes(const char *s, unsigned char out[16]) {
+    if (!strchr(s, ':')) return false;
+    unsigned char buf[16] = {0};
+    int filled = 0;   // bytes written before a ::
+    int gap = -1;     // byte index where :: sat, -1 if none
+    const char *p = s;
+    if (p[0] == ':' && p[1] == ':') { gap = 0; p += 2; }
+    else if (p[0] == ':') return false; // a single leading colon is bogus
+
+    while (*p && filled < 16) {
+        // an embedded ipv4 tail, like ::ffff:1.2.3.4 — only when the dotted quad is the
+        // current group (a '.' before the next ':'), not just somewhere further along
+        const char *dot = strchr(p, '.'), *colon = strchr(p, ':');
+        if (dot && (!colon || dot < colon)) {
+            unsigned o[4];
+            char extra;
+            if (sscanf(p, "%u.%u.%u.%u%c", &o[0], &o[1], &o[2], &o[3], &extra) != 4) return false;
+            for (int i = 0; i < 4; i++) {
+                if (o[i] > 255 || filled >= 16) return false;
+                buf[filled++] = (unsigned char)o[i];
+            }
+            p += strlen(p);
+            break;
+        }
+        char *end;
+        long v = strtol(p, &end, 16);
+        if (end == p || v < 0 || v > 0xffff) return false;
+        if (filled + 2 > 16) return false;
+        buf[filled++] = (unsigned char)(v >> 8);
+        buf[filled++] = (unsigned char)(v & 0xff);
+        p = end;
+        if (*p == ':') {
+            if (p[1] == ':') {
+                if (gap >= 0) return false; // only one :: allowed
+                gap = filled;
+                p += 2;
+            } else {
+                p++;
+            }
+        } else if (*p) {
+            return false; // some stray character
+        }
+    }
+    if (*p) return false;
+
+    if (gap >= 0) {
+        // slide the post-:: bytes down to the end, zero-fill the hole
+        int tail = filled - gap;
+        for (int i = 0; i < tail; i++) out[16 - tail + i] = buf[gap + i];
+        for (int i = 0; i < 16 - tail; i++) out[i] = (i < gap) ? buf[i] : 0;
+    } else {
+        if (filled != 16) return false; // no ::, so it has to be all 8 groups
+        memcpy(out, buf, 16);
+    }
+    return true;
+}

@@ -9,4 +9,8 @@
 // *unsupported and return true, so a rule we can't read never blocks a username
 bool rx_search(const char *pattern, const char *text, bool *unsupported);
 
+// like rx_search but the pattern has to match the whole string (used by the phone validator
+// where libphonenumber's patterns describe the entire national number)
+bool rx_full(const char *pattern, const char *text, bool *unsupported);
+
 #endif

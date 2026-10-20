@@ -64,4 +64,9 @@ size_t utf8_width(const char *s);
 bool ends_with(const char *s, const char *suffix);
 void human_size(long long n, char *out, size_t outlen);
 
+// parse an ipv6 string (with :: and embedded v4) into 16 bytes. false if it's not valid v6
+bool ipv6_bytes(const char *s, unsigned char out[16]);
+// true if s looks like a valid ipv4 dotted-quad
+bool is_ipv4(const char *s);
+
 #endif

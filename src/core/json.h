@@ -22,5 +22,9 @@ json *json_parse(const char *s, size_t n); // NULL if it's broken
 void json_free(json *j);
 json *json_get(const json *obj, const char *key);    // NULL if missing / not an object
 const char *json_str(const json *obj, const char *key); // NULL unless it's a string
+bool json_num(const json *obj, const char *key, double *out); // false unless it's a number
+
+// write s as a quoted json string to stdout (used by the -j output everywhere)
+void json_quote(const char *s);
 
 #endif
