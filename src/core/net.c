@@ -5,7 +5,9 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "core/json.h"
 #include "core/platform.h"
+#include "core/util.h"
 #include "ui/banner.h"
 
 // https certs. windows: use the system cert store. linux: a portable build might have been
@@ -104,4 +106,23 @@ bool net_get(const char *url, const char *const *headers, size_t max, long *stat
         return false;
     }
     return true;
+}
+
+json *net_get_json(const char *url, const char *const *headers, size_t max, long *status, char *err, size_t errlen) {
+    sbuf body;
+    sb_init(&body);
+    *status = 0;
+    if (!net_get(url, headers, max, status, &body, err, errlen)) {
+        sb_free(&body);
+        return NULL;
+    }
+    if (*status < 200 || *status >= 300) {
+        snprintf(err, errlen, "http %ld", *status);
+        sb_free(&body);
+        return NULL;
+    }
+    json *j = json_parse(body.s, body.len);
+    sb_free(&body);
+    if (!j) snprintf(err, errlen, "couldn't parse the json reply");
+    return j;
 }

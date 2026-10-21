@@ -1,7 +1,7 @@
 #ifndef ODIN_BANNER_H
 #define ODIN_BANNER_H
 
-#define ODIN_VERSION "0.2.0"
+#define ODIN_VERSION "0.3.0"
 
 // prints once per run, so the shell's commands don't keep repeating it
 void banner_print(void);

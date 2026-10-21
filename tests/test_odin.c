@@ -6,6 +6,7 @@
 #include <zlib.h>
 
 #include "analysis/findings.h"
+#include "core/dns.h"
 #include "core/extract.h"
 #include "core/json.h"
 #include "core/regex.h"
@@ -13,6 +14,7 @@
 #include "core/platform.h"
 #include "core/sha256.h"
 #include "core/util.h"
+#include "modules/phone/phone.h"
 #include "modules/user/sites.h"
 
 static int fails, checks;
@@ -572,6 +574,65 @@ static void test_json(void) {
     CHECK(json_parse(deep, 2000) == NULL, "2000-deep nesting accepted");
 }
 
+static void test_ipaddr(void) {
+    unsigned char b[16];
+    CHECK(is_ipv4("8.8.8.8") && is_ipv4("0.0.0.0") && is_ipv4("255.255.255.255"), "good v4");
+    CHECK(!is_ipv4("256.0.0.1") && !is_ipv4("1.2.3") && !is_ipv4("1.2.3.4.5") && !is_ipv4("a.b.c.d"), "bad v4");
+    CHECK(ipv6_bytes("::1", b) && b[15] == 1 && b[0] == 0, "::1");
+    CHECK(ipv6_bytes("2001:4860:4860::8888", b) && b[0] == 0x20 && b[1] == 0x01 && b[15] == 0x88, "google v6");
+    CHECK(ipv6_bytes("::ffff:1.2.3.4", b) && b[10] == 0xff && b[12] == 1 && b[15] == 4, "v4-mapped");
+    CHECK(!ipv6_bytes("hello", b) && !ipv6_bytes("1:2:3", b) && !ipv6_bytes("12345::", b), "bad v6");
+
+    char out[128];
+    CHECK(dns_reverse_name("8.8.4.4", out, sizeof out) && !strcmp(out, "4.4.8.8.in-addr.arpa"), "reverse v4 = %s", out);
+    CHECK(dns_reverse_name("2001:4860:4860::8888", out, sizeof out) && ends_with(out, ".ip6.arpa") &&
+              !strncmp(out, "8.8.8.8.", 8),
+          "reverse v6 = %s", out);
+    CHECK(!dns_reverse_name("not-an-ip", out, sizeof out), "reverse rejects junk");
+}
+
+static void test_phone(void) {
+    struct {
+        const char *in, *cc_hint, *region;
+        int cc;
+        bool valid;
+        const char *type; // substring the line type should contain, or NULL to skip
+    } v[] = {
+        {"+14155552671", NULL, "US", 1, true, "fixed line or mobile"},
+        {"+442071838750", NULL, "GB", 44, true, "fixed"},
+        {"+33612345678", NULL, "FR", 33, true, "mobile"},
+        {"+4915112345678", NULL, "DE", 49, true, "mobile"},
+        {"+819012345678", NULL, "JP", 81, true, "mobile"},
+        {"+61412345678", NULL, "AU", 61, true, "mobile"},
+        {"+911204567890", NULL, "IN", 91, true, NULL},
+        {"+12025550143", NULL, "US", 1, true, NULL},
+        {"+1416555xxxx", NULL, "US", 1, false, NULL},  // letters dropped -> too short
+        {"+99912345", NULL, NULL, 0, false, NULL},      // no such calling code
+    };
+    for (size_t i = 0; i < sizeof v / sizeof v[0]; i++) {
+        phone_info p = phone_analyze(v[i].in, v[i].cc_hint);
+        if (!v[i].cc) {
+            CHECK(!p.ok, "%s should have no calling code", v[i].in);
+            phone_info_free(&p);
+            continue;
+        }
+        CHECK(p.ok && p.cc == v[i].cc, "%s: cc got %d want %d", v[i].in, p.cc, v[i].cc);
+        CHECK(p.region && !strcmp(p.region->region, v[i].region), "%s: region got %s want %s", v[i].in,
+              p.region ? p.region->region : "(none)", v[i].region);
+        CHECK(p.valid == v[i].valid, "%s: valid got %d want %d", v[i].in, p.valid, v[i].valid);
+        if (v[i].type) CHECK(p.type && strstr(p.type, v[i].type), "%s: type got %s want ~%s", v[i].in,
+                             p.type ? p.type : "(none)", v[i].type);
+        phone_info_free(&p);
+    }
+    // national input with a default country, trunk 0 dropped
+    phone_info uk = phone_analyze("020 7183 8750", "GB");
+    CHECK(uk.ok && uk.valid && !strcmp(uk.national, "2071838750"), "GB national: valid=%d nat=%s", uk.valid, uk.national);
+    phone_info_free(&uk);
+    phone_info us = phone_analyze("(415) 555-2671", "US");
+    CHECK(us.ok && us.cc == 1 && us.valid, "US national cc=%d valid=%d", us.cc, us.valid);
+    phone_info_free(&us);
+}
+
 int main(void) {
     test_sha256();
     test_jpeg();
@@ -586,6 +647,8 @@ int main(void) {
     test_sites_file();
     test_regex();
     test_shell_split();
+    test_ipaddr();
+    test_phone();
     printf("\n%d/%d checks passed\n", checks - fails, checks);
     return fails ? 1 : 0;
 }
