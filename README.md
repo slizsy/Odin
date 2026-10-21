@@ -16,8 +16,8 @@
 ```
 
 osint toolkit written in c. one small native binary that only needs zlib and libcurl
-(basically every system already has them). right now it does metadata extraction and
-username hunting, more modules (emails, domains, phones, ips) are on the way.
+(basically every system already has them). it does metadata extraction, username hunting,
+and recon on domains, ips, emails and phone numbers.
 
 ## install
 
@@ -203,6 +203,80 @@ make
 
 odin's own extra rules live in `data/sites-extra.json`. credits and licenses are in `THIRD_PARTY_NOTICES.md`.
 
+## domain recon: `odin domain`
+
+```sh
+odin domain example.com              # dns, registration, subdomains
+odin domain example.com --no-subs    # skip the (slower) crt.sh lookup
+odin domain example.com --json | jq
+```
+
+pulls together everything public about a domain:
+
+- **dns**: A, AAAA, MX, NS, CAA records, plus the SPF and DMARC records picked out of TXT
+- **registration** (via [rdap](https://about.rdap.org), the modern whois): registrar, created /
+  expires / updated dates, status flags, DNSSEC, nameservers
+- **subdomains**: every hostname that's shown up in a tls certificate, from
+  [crt.sh](https://crt.sh)'s certificate transparency logs. this is usually where the
+  interesting stuff hides (`dev.`, `staging.`, `vpn.`, `internal.`...)
+
+then it flags the stuff worth knowing: missing SPF/DMARC (spoofable mail), `p=none` dmarc
+(not actually enforced), no DNSSEC, and how many subdomains are exposed.
+
+## ip recon: `odin ip`
+
+```sh
+odin ip 8.8.8.8
+odin ip 2606:4700:4700::1111          # v6 works too
+odin ip 8.8.8.8 --json | jq
+```
+
+- **network** (rdap): who the block is allocated to, the CIDR, range, and the abuse contact
+- **geo + asn**: country, region, city, the ASN and the ISP/org behind it
+- **reverse dns**: the PTR record, if there is one
+
+private / loopback / link-local addresses are called out instead of looked up (no point
+asking the internet about `192.168.x.x`).
+
+## email recon: `odin email`
+
+```sh
+odin email someone@example.com
+odin email someone@example.com --json
+```
+
+no mail is ever sent. odin checks:
+
+- **syntax**: is it even a valid address
+- **deliverable**: does the domain actually have MX records (or at least resolve)
+- **disposable**: is it one of ~10k known throwaway/temp-mail domains
+- **role account**: `admin@`, `support@`, `info@`... (a team, not a person)
+- **gravatar**: is there a public profile tied to the address (those often link other accounts)
+
+## phone lookup: `odin phone`
+
+```sh
+odin phone +14155552671
+odin phone "(020) 7183 8750" --country GB   # national format, pass the country
+odin phone +14155552671 --json
+```
+
+fully offline, built from [libphonenumber](https://github.com/google/libphonenumber)'s
+metadata: it works out the country, the line type (mobile / fixed / toll-free / voip...),
+whether the number is actually valid, and normalizes it to E.164. use `-c`/`--country` for
+numbers typed without a `+`.
+
+the domain / ip / email lookups all use public records only (dns-over-https, rdap,
+certificate transparency, ipwho.is, gravatar) and work through a proxy like everything else.
+to refresh the bundled phone and disposable-email data:
+
+```sh
+git clone --depth 1 https://github.com/google/libphonenumber /tmp/lpn
+python3 tools/gen_phone.py --xml /tmp/lpn/resources/PhoneNumberMetadata.xml
+python3 tools/gen_disposable.py      # fetches the latest list
+make
+```
+
 ## what `odin meta` reads
 
 | format | what it pulls |
@@ -231,9 +305,14 @@ src/
     meta/             the `odin meta` command
     shell/            interactive mode (odin with no command)
     user/             the `odin user` command: site loaders, parallel checker, output
+    domain/           the `odin domain` command: dns, rdap, crt.sh
+    ip/               the `odin ip` command: rdap, geo, reverse dns
+    email/            the `odin email` command + the bundled disposable-domain list
+    phone/            the `odin phone` command + generated libphonenumber data
     upgrade/          the `odin upgrade` command
     usage.h           the help text
-  core/               the plumbing: results, files, folders, sha256, json, https, regex, os differences
+  core/               the plumbing: results, files, folders, sha256, json, https,
+                      dns-over-https, regex, iso country names, os differences
   parsers/
     parsers.c         sniffs what a file actually is and sends it to the right parser
     images/           jpeg, png, webp, exif, iptc
@@ -243,9 +322,10 @@ src/
   output/             pretty terminal output + json
   external/           exiftool hookup
   ui/                 colors, the banner, the line editor for interactive mode
-tools/                gen_sites.py, builds the username site list
+tools/                gen_sites.py (usernames), gen_phone.py (phone data),
+                      gen_disposable.py (temp-mail domains), gen_iso.py (country names)
 data/                 odin's own extra username site rules
-tests/                unit tests, fuzz harness, fake websites for the user module
+tests/                unit tests, fuzz harness, fake websites + fake dns/rdap servers
 ```
 
 adding a new file format = new parser in `parsers/`, then one line in `parsers/parsers.c`.
@@ -269,7 +349,7 @@ the release job refuses if the tag and `ODIN_VERSION` don't match.
 
 ```sh
 make test              # unit tests (address sanitizer), username engine vs fake sites,
-                       # odin upgrade vs a fake github
+                       # domain/ip/email vs a fake dns+rdap server, odin upgrade vs fake github
 make STATIC=1          # self-contained binary, what the downloads are
 make fuzz FUZZ_TIME=60 # throws random junk at the parsers (needs clang + libfuzzer)
 make clean

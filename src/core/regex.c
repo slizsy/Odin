@@ -407,3 +407,11 @@ bool rx_search(const char *pattern, const char *text, bool *unsupported) {
     free(pat);
     return result;
 }
+
+bool rx_full(const char *pattern, const char *text, bool *unsupported) {
+    // wrap in ^(?:...)$ so the match has to cover the whole string
+    char *full = xprintf("^(?:%s)$", pattern);
+    bool r = rx_search(full, text, unsupported);
+    free(full);
+    return r;
+}

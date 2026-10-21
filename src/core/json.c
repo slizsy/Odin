@@ -1,6 +1,7 @@
 #include "core/json.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -199,4 +200,25 @@ json *json_get(const json *obj, const char *key) {
 const char *json_str(const json *obj, const char *key) {
     json *v = json_get(obj, key);
     return v && v->t == J_STR ? v->s : NULL;
+}
+
+bool json_num(const json *obj, const char *key, double *out) {
+    json *v = json_get(obj, key);
+    if (!v || v->t != J_NUM) return false;
+    *out = v->n;
+    return true;
+}
+
+void json_quote(const char *s) {
+    putchar('"');
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') printf("\\%c", c);
+        else if (c == '\n') fputs("\\n", stdout);
+        else if (c == '\t') fputs("\\t", stdout);
+        else if (c == '\r') fputs("\\r", stdout);
+        else if (c < 0x20) printf("\\u%04x", c);
+        else putchar(c);
+    }
+    putchar('"');
 }

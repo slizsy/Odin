@@ -2,7 +2,11 @@
 #include <string.h>
 
 #include "core/platform.h"
+#include "modules/domain/domain.h"
+#include "modules/email/email.h"
+#include "modules/ip/ip.h"
 #include "modules/meta/meta_cmd.h"
+#include "modules/phone/phone.h"
 #include "modules/shell/shell.h"
 #include "modules/upgrade/upgrade_cmd.h"
 #include "modules/usage.h"
@@ -23,17 +27,14 @@ int main(int argc, char **argv) {
     const char *cmd = argv[1];
     if (!strcmp(cmd, "meta") || !strcmp(cmd, "m")) return run_meta(argc - 2, argv + 2);
     if (!strcmp(cmd, "user") || !strcmp(cmd, "u")) return run_user(argc - 2, argv + 2);
+    if (!strcmp(cmd, "domain") || !strcmp(cmd, "d")) return run_domain(argc - 2, argv + 2);
+    if (!strcmp(cmd, "ip")) return run_ip(argc - 2, argv + 2);
+    if (!strcmp(cmd, "email") || !strcmp(cmd, "e")) return run_email(argc - 2, argv + 2);
+    if (!strcmp(cmd, "phone") || !strcmp(cmd, "p")) return run_phone(argc - 2, argv + 2);
     if (!strcmp(cmd, "upgrade") || !strcmp(cmd, "update")) return run_upgrade(argc - 2, argv + 2);
     if (!strcmp(cmd, "version") || !strcmp(cmd, "-v") || !strcmp(cmd, "--version")) {
         puts("odin " ODIN_VERSION);
         return 0;
-    }
-    const char *soon[] = {"email", "domain", "phone", "ip", NULL};
-    for (int i = 0; soon[i]; i++) {
-        if (!strcmp(cmd, soon[i])) {
-            fprintf(stderr, "odin: the %s module isn't built yet\n", cmd);
-            return 1;
-        }
     }
     fprintf(stderr, "odin: no idea what \"%s\" is\n\n%s", cmd, usage);
     return 2;
