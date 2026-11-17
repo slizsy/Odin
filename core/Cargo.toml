@@ -1,0 +1,14 @@
+[package]
+name = "odin-core"
+description = "odin's engine: reads metadata out of files and strips it. no ui in here"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kamadak-exif = "0.6"
+lopdf = { version = "0.47", default-features = false }
+flate2 = "1"
+getrandom = "0.3"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

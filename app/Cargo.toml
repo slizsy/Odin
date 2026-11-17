@@ -1,0 +1,11 @@
+[package]
+name = "odin"
+description = "odin: see what your files leak, then strip it"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+odin-core = { path = "../core" }
+eframe = "0.37"
+rfd = "0.18"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

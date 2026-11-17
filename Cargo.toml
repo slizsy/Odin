@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["core", "app"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+repository = "https://github.com/slizsy/Odin"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true
