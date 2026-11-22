@@ -16,7 +16,7 @@
 ```
 
 osint toolkit written in c. one small native binary that only needs zlib and libcurl
-(basically every system already has them). it does metadata extraction, username hunting,
+(basically every system already has them). it does metadata extraction and scrubbing, username hunting,
 and recon on domains, ips, emails and phone numbers.
 
 ## install
@@ -97,6 +97,37 @@ odin meta -x weird.heic              # full dump via exiftool (if installed)
 
 short flags stack, so `-rfq` works. use `--` before a filename that starts with a dash.
 
+## scrubbing metadata: `odin scrub`
+
+makes a copy of each photo with all the metadata gone, so you can send it without leaking
+where you were or what you shot it on.
+
+```sh
+odin scrub IMG_1930.HEIC             # makes IMG_1930.clean.HEIC next to it
+odin scrub -r ~/Pictures/to-send     # whole folder, skips the .clean copies from last time
+odin scrub -i photo.jpg              # clean the original itself, no copy
+```
+
+| flag | what it does |
+| --- | --- |
+| `-r`, `--recursive` | walk folders all the way down |
+| `-i`, `--in-place` | overwrite the originals instead of making `.clean` copies |
+| `-q`, `--quiet` | no banner |
+| `--no-color` | plain text |
+
+works on jpeg, heic (iphone), avif, png and webp. it removes gps, camera make/model, serial
+numbers, dates, embedded thumbnails, xmp, iptc, comments, png text chunks and anything stuck on
+after the end of the image.
+
+it never re-encodes, the image data is copied over byte for byte so there's zero quality loss.
+it keeps the color profile (or colors look off) and the rotation (or the photo comes out
+sideways). heic files keep their exact size, the metadata gets blanked in place since moving
+stuff around in heic breaks it. after scrubbing, odin runs its own metadata reader on the
+result and refuses to save it if anything is still in there.
+
+heads up: iphone jpegs with hdr lose the hdr boost (the gain map is a second hidden image,
+and it has its own metadata). videos aren't supported yet.
+
 ## interactive mode
 
 just type `odin`. the banner shows once and you get a prompt where you run commands
@@ -104,6 +135,7 @@ without typing `odin` every time:
 
 ```
 odin> meta ~/Downloads/IMG_1930.HEIC
+odin> scrub ~/Downloads/IMG_1930.HEIC
 odin> user johndoe -a
 odin> help
 odin> exit

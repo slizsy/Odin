@@ -101,11 +101,17 @@ static int read_iinf(box_t iinf, item_info **out) {
     return k;
 }
 
-// glues an item's extents together. caller frees
-static unsigned char *item_bytes(const unsigned char *file, size_t n, box_t iloc, box_t idat, uint32_t want,
-                                 size_t *out_len) {
+typedef struct {
+    size_t at, len; // absolute spot in the file buffer
+} extent_t;
+
+#define MAX_EXTENTS 64
+
+// finds where an item's bytes live. fills ext with absolute file offsets (idat ones get
+// translated too) and returns how many, or -1 if iloc is junk / the item isn't there
+static int item_extents(const unsigned char *file, size_t n, box_t iloc, box_t idat, uint32_t want, extent_t *ext) {
     const unsigned char *p = iloc.p, *end = iloc.p + iloc.len;
-    if (end - p < 8) return NULL;
+    if (end - p < 8) return -1;
     int version = p[0];
     p += 4;
     int off_size = p[0] >> 4, len_size = p[0] & 15, base_size = p[1] >> 4;
@@ -114,65 +120,121 @@ static unsigned char *item_bytes(const unsigned char *file, size_t n, box_t iloc
     uint32_t count;
     if (version < 2) count = rd16be(p), p += 2;
     else if (end - p >= 4) count = rd32be(p), p += 4;
-    else return NULL;
+    else return -1;
 
     for (uint32_t i = 0; i < count; i++) {
         uint64_t id, method = 0, base, ext_count, tmp;
-        if (!rd_sized(&p, end, version < 2 ? 2 : 4, &id)) return NULL;
+        if (!rd_sized(&p, end, version < 2 ? 2 : 4, &id)) return -1;
         if (version >= 1) {
-            if (!rd_sized(&p, end, 2, &tmp)) return NULL;
+            if (!rd_sized(&p, end, 2, &tmp)) return -1;
             method = tmp & 15;
         }
-        if (!rd_sized(&p, end, 2, &tmp)) return NULL; // data_reference_index
-        if (!rd_sized(&p, end, base_size, &base) || !rd_sized(&p, end, 2, &ext_count)) return NULL;
+        if (!rd_sized(&p, end, 2, &tmp)) return -1; // data_reference_index
+        if (!rd_sized(&p, end, base_size, &base) || !rd_sized(&p, end, 2, &ext_count)) return -1;
 
-        sbuf data;
-        sb_init(&data);
-        bool ok = true;
+        int k = 0;
+        uint64_t total = 0;
         for (uint64_t e = 0; e < ext_count; e++) {
             uint64_t eoff, elen;
-            if (version >= 1 && idx_size && !rd_sized(&p, end, idx_size, &tmp)) ok = false;
-            if (!ok || !rd_sized(&p, end, off_size, &eoff) || !rd_sized(&p, end, len_size, &elen)) {
-                ok = false;
-                break;
-            }
+            if (version >= 1 && idx_size && !rd_sized(&p, end, idx_size, &tmp)) return -1;
+            if (!rd_sized(&p, end, off_size, &eoff) || !rd_sized(&p, end, len_size, &elen)) return -1;
             if (id != want) continue;
             // method 0 = offset in the file, 1 = offset inside idat
-            const unsigned char *src = method == 1 ? idat.p : file;
+            size_t src_at = method == 1 && idat.p ? (size_t)(idat.p - file) : 0;
             size_t src_len = method == 1 ? idat.len : n;
             uint64_t at = base + eoff;
-            if (method > 1 || !src || at > src_len) {
-                ok = false;
-                break;
-            }
+            if (method > 1 || (method == 1 && !idat.p) || at > src_len || k >= MAX_EXTENTS) return -1;
             if (elen == 0) elen = src_len - at; // 0 = rest of the data
-            if (elen > src_len - at || data.len + elen > (64u << 20)) {
-                ok = false;
-                break;
-            }
-            sb_putn(&data, (const char *)src + at, (size_t)elen);
+            if (elen > src_len - at) return -1;
+            total += elen;
+            if (total > (64u << 20)) return -1;
+            ext[k++] = (extent_t){src_at + (size_t)at, (size_t)elen};
         }
-        if (!ok) {
-            sb_free(&data);
-            return NULL;
-        }
-        if (id == want) {
-            *out_len = data.len;
-            return (unsigned char *)sb_take(&data);
-        }
-        sb_free(&data);
+        if (id == want) return k;
     }
-    return NULL;
+    return -1;
 }
 
-bool parse_heif(result_t *r, const unsigned char *b, size_t n, const char *pfx) {
-    box_t meta, iinf, iloc, idat = {NULL, 0};
+// glues an item's extents together. caller frees
+static unsigned char *item_bytes(const unsigned char *file, size_t n, box_t iloc, box_t idat, uint32_t want,
+                                 size_t *out_len) {
+    extent_t ext[MAX_EXTENTS];
+    int k = item_extents(file, n, iloc, idat, want, ext);
+    if (k < 0) return NULL;
+    sbuf data;
+    sb_init(&data);
+    for (int i = 0; i < k; i++) sb_putn(&data, (const char *)file + ext[i].at, ext[i].len);
+    *out_len = data.len;
+    return (unsigned char *)sb_take(&data);
+}
+
+// finds meta/iinf/iloc/idat. false if this isn't a heif with a meta box
+static bool heif_boxes(const unsigned char *b, size_t n, box_t *iinf, box_t *iloc, box_t *idat) {
+    box_t meta;
+    idat->p = NULL, idat->len = 0;
     if (!find_box(b, n, "meta", &meta) || meta.len < 4) return false;
     // meta is a "full box", 4 bytes of version/flags before its children
     const unsigned char *mp = meta.p + 4;
     size_t ml = meta.len - 4;
-    if (!find_box(mp, ml, "iinf", &iinf) || !find_box(mp, ml, "iloc", &iloc)) return false;
-    find_box(mp, ml, "idat", &idat);
+    if (!find_box(mp, ml, "iinf", iinf) || !find_box(mp, ml, "iloc", iloc)) return false;
+    find_box(mp, ml, "idat", idat);
+    return true;
+}
+
+// spreads `rep` (exactly as long as the item) back over the item's extents
+static void overwrite_item(unsigned char *b, const extent_t *ext, int k, const unsigned char *rep) {
+    for (int i = 0; i < k; rep += ext[i].len, i++) memcpy(b + ext[i].at, rep, ext[i].len);
+}
+
+int heif_wipe_meta(unsigned char *b, size_t n, int *nexif, int *nxmp) {
+    box_t iinf, iloc, idat;
+    *nexif = *nxmp = 0;
+    if (!heif_boxes(b, n, &iinf, &iloc, &idat)) return -1;
+
+    // empty but still valid stand-ins, so picky readers don't choke on a zeroed item.
+    // exif = 4 byte header offset (0) + big endian tiff header + an ifd with no entries.
+    // orientation in heic lives in the irot/imir boxes, so nothing to keep from exif
+    static const unsigned char empty_exif[] = {0, 0, 0, 0, 'M', 'M', 0, 42, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0};
+    static const char empty_xmp[] = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>";
+
+    item_info *items;
+    int k = read_iinf(iinf, &items);
+    int bad = 0;
+    for (int i = 0; i < k; i++) {
+        bool exif = !memcmp(items[i].type, "Exif", 4);
+        if (!exif && !items[i].is_xmp) continue;
+        extent_t ext[MAX_EXTENTS];
+        int ne = item_extents(b, n, iloc, idat, items[i].id, ext);
+        if (ne < 0) {
+            bad++;
+            continue;
+        }
+        size_t total = 0;
+        for (int e = 0; e < ne; e++) total += ext[e].len;
+        // build the stand in at full size. too small for it? just zeros, nobody reads zeros
+        unsigned char *rep = calloc(total ? total : 1, 1);
+        if (!rep) exit(1);
+        if (exif) {
+            if (total >= sizeof empty_exif) memcpy(rep, empty_exif, sizeof empty_exif);
+            (*nexif)++;
+        } else {
+            size_t xl = sizeof empty_xmp - 1;
+            if (total >= xl) {
+                memcpy(rep, empty_xmp, xl);
+                memset(rep + xl, ' ', total - xl); // xmp pads with spaces, that's what the spec does
+            }
+            (*nxmp)++;
+        }
+        overwrite_item(b, ext, ne, rep);
+        free(rep);
+    }
+    free(items);
+    return bad;
+}
+
+bool parse_heif(result_t *r, const unsigned char *b, size_t n, const char *pfx) {
+    box_t iinf, iloc, idat;
+    if (!heif_boxes(b, n, &iinf, &iloc, &idat)) return false;
 
     item_info *items;
     int k = read_iinf(iinf, &items);

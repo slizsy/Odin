@@ -14,6 +14,7 @@
 #include "modules/email/email.h"
 #include "modules/ip/ip.h"
 #include "modules/meta/meta_cmd.h"
+#include "modules/scrub/scrub_cmd.h"
 #include "modules/phone/phone.h"
 #include "modules/upgrade/upgrade_cmd.h"
 #include "modules/usage.h"
@@ -122,6 +123,7 @@ static const char *shell_help =
     "\n"
     "you're inside odin, so just type the command:\n"
     "  meta <path...>       rip metadata out of files and folders\n"
+    "  scrub <path...>      make clean copies of photos with all metadata stripped\n"
     "  user <name...>       hunt for a username across a pile of sites\n"
     "  domain <domain...>   dns, registration, subdomains for a domain\n"
     "  ip <addr...>         who owns an ip, geo, reverse dns\n"
@@ -137,6 +139,7 @@ static const char *shell_help =
     "\n"
     "examples:\n"
     "  meta ~/Downloads/IMG_1930.HEIC\n"
+    "  scrub ~/Downloads/IMG_1930.HEIC\n"
     "  user johndoe -a\n"
     "  domain example.com\n"
     "  phone +14155552671\n\n";
@@ -168,6 +171,8 @@ static bool run_line(char **argv, int argc) {
         puts("odin " ODIN_VERSION);
     } else if (!strcmp(cmd, "meta") || !strcmp(cmd, "m")) {
         run_meta(argc - 1, argv + 1);
+    } else if (!strcmp(cmd, "scrub") || !strcmp(cmd, "s")) {
+        run_scrub(argc - 1, argv + 1);
     } else if (!strcmp(cmd, "user") || !strcmp(cmd, "u")) {
         run_user(argc - 1, argv + 1);
     } else if (!strcmp(cmd, "domain") || !strcmp(cmd, "d")) {
