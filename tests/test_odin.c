@@ -16,6 +16,7 @@
 #include "core/util.h"
 #include "modules/phone/phone.h"
 #include "modules/user/sites.h"
+#include "scrub/scrub.h"
 
 static int fails, checks;
 
@@ -633,6 +634,127 @@ static void test_phone(void) {
     phone_info_free(&us);
 }
 
+// --- scrub: strip everything, then make sure the normal reader finds nothing ---
+
+static unsigned char *scrubbed(const unsigned char *b, size_t n, size_t *out_len, scrub_info *info) {
+    unsigned char *out = NULL;
+    char err[256];
+    scrub_rc rc = scrub_bytes(b, n, &out, out_len, info, err, sizeof err);
+    CHECK(rc == SCRUB_OK, "scrub failed (%d): %s", rc, err);
+    return out;
+}
+
+static void test_scrub(void) {
+    puts("scrub");
+    scrub_info info;
+    size_t n, cn;
+
+    // jpeg with exif + gps + serial, a comment, and junk tacked on after the end
+    unsigned char *jpg = sample_jpeg(&n);
+    unsigned char *withtail = malloc(n + 20);
+    memcpy(withtail, jpg, 2);
+    memcpy(withtail + 2, "\xFF\xFE\x00\x0Dsecret note", 15); // COM segment
+    memcpy(withtail + 17, jpg + 2, n - 2);
+    memcpy(withtail + 15 + n, "TAIL!", 5);
+    size_t tn = 15 + n + 5;
+    unsigned char *c = scrubbed(withtail, tn, &cn, &info);
+    if (c) {
+        result_t *r = run(c, cn);
+        CHECK(!strcmp(r->type, "JPEG image"), "still a jpeg? type = %s", r->type);
+        CHECK(r->ngps == 0 && r->nfields == 0, "jpeg leftovers: %zu fields, %zu gps", r->nfields, r->ngps);
+        CHECK(strstr(info.what, "exif") && strstr(info.what, "comment") && strstr(info.what, "trailing"),
+              "what = %s", info.what);
+        CHECK(!memfind(c, cn, "secret") && !memfind(c, cn, "TAIL"), "comment or tail survived");
+        CHECK(cn >= 4 && !memcmp(c + cn - 2, "\xFF\xD9", 2), "jpeg should end with EOI");
+        result_free(r);
+        free(c);
+    }
+    free(withtail);
+    free(jpg);
+
+    // heic, both exif in mdat and in idat, with tiles in front like a real iphone shot
+    for (int in_idat = 0; in_idat < 2; in_idat++) {
+        unsigned char *h = sample_heic(3, in_idat, &n);
+        c = scrubbed(h, n, &cn, &info);
+        if (c) {
+            result_t *r = run(c, cn);
+            CHECK(cn == n, "heic size changed %zu -> %zu", n, cn);
+            CHECK(!strcmp(r->type, "HEIC image"), "type = %s", r->type);
+            CHECK(r->ngps == 0 && r->nfields == 0, "heic (%s) leftovers: %zu fields", in_idat ? "idat" : "mdat",
+                  r->nfields);
+            CHECK(info.removed == 1 && !strcmp(info.format, "HEIC"), "removed %d %s", info.removed, info.format);
+            CHECK(!memfind(c, cn, "Canon") && !memfind(c, cn, "SN-0042"), "heic exif bytes still in there");
+            result_free(r);
+            free(c);
+        }
+        free(h);
+    }
+
+    // png: text chunk with a name in it, plus the exif as an eXIf chunk
+    size_t tl;
+    unsigned char *t = sample_tiff(&tl);
+    sbuf p;
+    sb_init(&p);
+    sb_putn(&p, "\x89PNG\r\n\x1a\n", 8);
+    const struct {
+        const char *type;
+        const char *data;
+        size_t len;
+    } chunks[] = {
+        {"IHDR", "\0\0\0\1\0\0\0\1\x08\x02\0\0\0", 13},
+        {"tEXt", "Author\0Jane Doe", 15},
+        {"eXIf", (const char *)t, tl},
+        {"IDAT", "\x78\x9c\x63\x60\x60\x60\0\0\0\x04\0\x01", 12},
+        {"IEND", "", 0},
+    };
+    for (size_t i = 0; i < sizeof chunks / sizeof *chunks; i++) {
+        be32(&p, (uint32_t)chunks[i].len);
+        sb_putn(&p, chunks[i].type, 4);
+        sb_putn(&p, chunks[i].data, chunks[i].len);
+        sbuf crcin;
+        sb_init(&crcin);
+        sb_putn(&crcin, chunks[i].type, 4);
+        sb_putn(&crcin, chunks[i].data, chunks[i].len);
+        be32(&p, (uint32_t)crc32(0, (const Bytef *)crcin.s, (uInt)crcin.len));
+        sb_free(&crcin);
+    }
+    free(t);
+    c = scrubbed((unsigned char *)p.s, p.len, &cn, &info);
+    if (c) {
+        result_t *r = run(c, cn);
+        CHECK(r->ngps == 0 && r->nfields == 0, "png leftovers: %zu fields", r->nfields);
+        CHECK(!memfind(c, cn, "Jane") && memfind(c, cn, "IDAT") && memfind(c, cn, "IEND"), "png chunks wrong");
+        result_free(r);
+        free(c);
+    }
+    sb_free(&p);
+
+    // rotation survives: exif with only orientation = 6 (rotate 90)
+    static const unsigned char rot_jpg[] = {0xFF, 0xD8, 0xFF, 0xE1, 0, 34, 'E', 'x', 'i', 'f', 0, 0, 'I', 'I', 42, 0,
+                                            8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0,
+                                            0xFF, 0xD9};
+    c = scrubbed(rot_jpg, sizeof rot_jpg, &cn, &info);
+    if (c) {
+        result_t *r = run(c, cn);
+        CHECK(info.orientation == 6 && !strcmp(field(r, "Orientation"), "6"), "orientation = %s",
+              field(r, "Orientation"));
+        result_free(r);
+        free(c);
+    }
+
+    // stuff we don't handle says so, and broken files don't crash
+    unsigned char *out;
+    size_t ol;
+    char err[256];
+    CHECK(scrub_bytes((const unsigned char *)"hello", 5, &out, &ol, &info, err, sizeof err) == SCRUB_UNSUPPORTED,
+          "text should be unsupported");
+    static const unsigned char bad_jpg[] = {0xFF, 0xD8, 0xFF, 0xE1, 0x40, 0x00, 'E', 'x'};
+    unsigned char *bj = malloc(sizeof bad_jpg); // exact size so asan catches overreads
+    memcpy(bj, bad_jpg, sizeof bad_jpg);
+    CHECK(scrub_bytes(bj, sizeof bad_jpg, &out, &ol, &info, err, sizeof err) == SCRUB_BROKEN, "truncated jpeg");
+    free(bj);
+}
+
 int main(void) {
     test_sha256();
     test_jpeg();
@@ -642,6 +764,7 @@ int main(void) {
     test_leaks();
     test_garbage();
     test_heic();
+    test_scrub();
     test_json();
     test_site_url();
     test_sites_file();

@@ -7,6 +7,7 @@
 #include "modules/ip/ip.h"
 #include "modules/meta/meta_cmd.h"
 #include "modules/phone/phone.h"
+#include "modules/scrub/scrub_cmd.h"
 #include "modules/shell/shell.h"
 #include "modules/upgrade/upgrade_cmd.h"
 #include "modules/usage.h"
@@ -26,6 +27,7 @@ int main(int argc, char **argv) {
     }
     const char *cmd = argv[1];
     if (!strcmp(cmd, "meta") || !strcmp(cmd, "m")) return run_meta(argc - 2, argv + 2);
+    if (!strcmp(cmd, "scrub") || !strcmp(cmd, "s")) return run_scrub(argc - 2, argv + 2);
     if (!strcmp(cmd, "user") || !strcmp(cmd, "u")) return run_user(argc - 2, argv + 2);
     if (!strcmp(cmd, "domain") || !strcmp(cmd, "d")) return run_domain(argc - 2, argv + 2);
     if (!strcmp(cmd, "ip")) return run_ip(argc - 2, argv + 2);
